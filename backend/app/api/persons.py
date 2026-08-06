@@ -438,6 +438,7 @@ def register_face(
     quality_assessor = ImageQualityAssessor()
 
     uploaded_files = files or ([] if file is None else [file])
+    logger.info(f"Request received: register-face for person_id={person_id}, file_count={len(uploaded_files)}")
 
     # Validate person exists
     person = crud.get_person(db, person_id)
@@ -466,6 +467,7 @@ def register_face(
     details = []
 
     for idx, upload_file in enumerate(uploaded_files):
+        logger.info(f"Filename received: {upload_file.filename}")
         detail = {
             "filename": upload_file.filename,
             "status": "pending",
@@ -480,11 +482,13 @@ def register_face(
 
             if image is None:
                 raise ValueError("Could not decode image")
+            logger.info(f"Image decoded for filename: {upload_file.filename}")
 
             validation = validator.validate(image)
             if not validation.valid:
                 raise ValueError(f"Image validation failed: {validation.message}")
 
+            logger.info(f"Face detector called for filename: {upload_file.filename}")
             detected_faces = detector.detect(image)
 
             if len(detected_faces) > 1:
@@ -509,6 +513,7 @@ def register_face(
                 raise ValueError("No embedding extracted from face")
 
             emb_result = embedder.get_embedding(face.embedding)
+            logger.info(f"Embedding generated for filename: {upload_file.filename}")
 
             db_image = crud.create_face_image(
                 db=db,
@@ -569,6 +574,8 @@ def register_face(
     avg_quality = (
         round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else 0.0
     )
+
+    logger.info(f"Response returned for person_id={person_id}: registered={registered}, failed={failed}, embeddings={embeddings_created}")
 
     return schemas.FaceRegistrationResponse(
         person_id=person_id,

@@ -115,7 +115,6 @@ export async function registerFace(
     `/persons/${personId}/register-face`,
     formData,
     {
-      headers: { "Content-Type": "multipart/form-data" },
       timeout: 120000, // 2 min for large uploads
     }
   );
@@ -148,7 +147,6 @@ export async function recognizeFace(
   }
 
   const response = await api.post("/recognition", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
     timeout: 30000,
   });
   return unwrapApiResponse(response);
