@@ -1,0 +1,81 @@
+# ==========================
+# Environment Files
+# ==========================
+.env
+.env.*
+!.env.example
+
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual Environments
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+
+# ==========================
+# Flutter
+# ==========================
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/.pub-cache/
+
+# iOS
+**/ios/Pods/
+
+# Android
+**/android/.gradle/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# ==========================
+# Node.js / React
+# ==========================
+**/node_modules/
+**/dist/
+**/.vite/
+
+# ==========================
+# IDE
+# ==========================
+.vscode/
+.idea/
+*.iml
+
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Logs
+# ==========================
+*.log
+
+# ==========================
+# Database
+# ==========================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================
+# FaceVault Storage (Generated Data)
+# ==========================
+storage/
+uploads/
+temp/
