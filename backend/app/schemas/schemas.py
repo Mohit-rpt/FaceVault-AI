@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import Optional, List
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 # ==================== Person Details ====================
@@ -22,6 +22,23 @@ class PersonDetailBase(BaseModel):
     country: Optional[str] = None
     birthday: Optional[date] = None
     remarks: Optional[str] = None
+
+    @field_validator("birthday", mode="before")
+    @classmethod
+    def parse_birthday(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str or v_str.lower() == "null":
+                return None
+            try:
+                if "T" in v_str:
+                    return datetime.fromisoformat(v_str).date()
+                return date.fromisoformat(v_str)
+            except ValueError:
+                raise ValueError("Invalid birthday date format. Expected YYYY-MM-DD or ISO date string.")
+        return v
 
 
 class PersonDetailCreate(PersonDetailBase):

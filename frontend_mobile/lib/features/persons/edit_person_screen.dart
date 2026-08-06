@@ -85,23 +85,49 @@ class _EditPersonScreenState extends ConsumerState<EditPersonScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final service = ref.read(personServiceProvider);
+      final String bdayRaw = _birthdayCtrl.text.trim();
+      String? birthdayVal;
+      if (bdayRaw.isNotEmpty) {
+        try {
+          final parsed = DateTime.parse(bdayRaw);
+          birthdayVal = "${parsed.year.toString().padLeft(4, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}";
+        } catch (_) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Invalid birthday format. Please use YYYY-MM-DD (e.g. 1995-05-15)'),
+              backgroundColor: AppTheme.errorRed,
+            ),
+          );
+          setState(() => _isSaving = false);
+          return;
+        }
+      }
+
+      final String? phoneVal = _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim();
+      final String? emailVal = _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim();
+      final String? genderVal = _genderCtrl.text.trim().isEmpty ? null : _genderCtrl.text.trim();
+      final String? addressVal = _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim();
+      final String? companyVal = _companyCtrl.text.trim().isEmpty ? null : _companyCtrl.text.trim();
+      final String? designationVal = _designationCtrl.text.trim().isEmpty ? null : _designationCtrl.text.trim();
+      final String? departmentVal = _departmentCtrl.text.trim().isEmpty ? null : _departmentCtrl.text.trim();
+      final String? empIdVal = _empIdCtrl.text.trim().isEmpty ? null : _empIdCtrl.text.trim();
+      final String? collegeVal = _collegeCtrl.text.trim().isEmpty ? null : _collegeCtrl.text.trim();
 
       final updateData = {
         'name': _nameCtrl.text.trim(),
-        'nickname': _nicknameCtrl.text.trim(),
-        'relationship': _relationshipCtrl.text.trim(),
+        'nickname': _nicknameCtrl.text.trim().isEmpty ? null : _nicknameCtrl.text.trim(),
+        'relationship': _relationshipCtrl.text.trim().isEmpty ? null : _relationshipCtrl.text.trim(),
         'details': {
-          'phone': _phoneCtrl.text.trim(),
-          'email': _emailCtrl.text.trim(),
-          'birthday': _birthdayCtrl.text.trim(),
-          'gender': _genderCtrl.text.trim(),
-          'address': _addressCtrl.text.trim(),
-          'company': _companyCtrl.text.trim(),
-          'designation': _designationCtrl.text.trim(),
-          'department': _departmentCtrl.text.trim(),
-          'employee_id': _empIdCtrl.text.trim(),
-          'college': _collegeCtrl.text.trim(),
+          'phone': phoneVal,
+          'email': emailVal,
+          'birthday': birthdayVal,
+          'gender': genderVal,
+          'address': addressVal,
+          'company': companyVal,
+          'designation': designationVal,
+          'department': departmentVal,
+          'employee_id': empIdVal,
+          'college': collegeVal,
         },
       };
 
