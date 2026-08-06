@@ -1,12 +1,21 @@
 """
-Face Detection Service using InsightFace.
+Face Detection Service using InsightFace (Memory & Singleton Optimized).
 
 Detects faces, returns bounding boxes, landmarks, crops, AND embeddings.
 """
 import os
-import psutil
+import gc
 import logging
 from typing import List, Optional
+
+# Optimize ONNX Runtime & BLAS thread allocation to prevent Render 512MB RAM OOM
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["ORT_INTRA_OP_NUM_THREADS"] = "1"
+os.environ["ORT_INTER_OP_NUM_THREADS"] = "1"
 
 import numpy as np
 from insightface.app import FaceAnalysis
@@ -27,46 +36,43 @@ class FaceDetectionResult(BaseModel):
     landmarks: Optional[List[List[float]]]
     detection_score: float
     face_image: np.ndarray
-    embedding: Optional[np.ndarray] = None  # 🔥 NEW: Direct embedding from InsightFace
+    embedding: Optional[np.ndarray] = None
 
 
 class FaceDetector:
     """
-    InsightFace-based face detector with validation and quality checks.
+    InsightFace-based face detector with validation, quality checks, and memory management.
     """
-    
+
     def __init__(
         self,
         model_name: str = "buffalo_s",
         ctx_id: int = -1,
-        det_size: tuple = (320,320),
+        det_size: tuple = (320, 320),
         validator: Optional[ImageValidator] = None,
         quality_assessor: Optional[ImageQualityAssessor] = None,
     ):
         self.validator = validator or ImageValidator()
         self.quality = quality_assessor or ImageQualityAssessor()
-        
-        logger.info(f"Initializing FaceDetector: {model_name}")
-        print("🔥 BEFORE INSIGHTFACE LOAD")
-        self.app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'],allowed_modules=['detection', 'recognition'])
-        print("🔥 AFTER INSIGHTFACE LOAD")
-        self.app.prepare(ctx_id=ctx_id, det_size=det_size)
-        print("🔥 AFTER PREPARE")
-        process = psutil.Process(os.getpid())
-        
-        logger.info(
-            f"RAM usage: {process.memory_info().rss / 1024 / 1024:.2f} MB"
+
+        logger.info(f"Initializing Singleton FaceDetector model: {model_name}")
+        self.app = FaceAnalysis(
+            name=model_name,
+            providers=["CPUExecutionProvider"],
+            allowed_modules=["detection", "recognition"],
         )
-        logger.info("FaceDetector ready")
+        self.app.prepare(ctx_id=ctx_id, det_size=det_size)
+
+        logger.info("InsightFace model loaded successfully into Singleton instance.")
 
     def detect(self, image: np.ndarray) -> List[FaceDetectionResult]:
-        """Detect all faces with validation and quality checks."""
+        """Detect faces with validation, quality checks, and memory optimization."""
         self.validator.validate_or_raise(image)
-        
+
         faces = self.app.get(image)
         if not faces:
-            raise NoFaceDetectedError("No faces detected")
-        
+            raise NoFaceDetectedError("No faces detected in image")
+
         results = []
         for face in faces:
             try:
@@ -74,43 +80,44 @@ class FaceDetector:
                 h, w = image.shape[:2]
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w, x2), min(h, y2)
-                
+
                 if x2 <= x1 or y2 <= y1:
                     continue
-                
-                crop = image[y1:y2, x1:x2]
-                
+
+                crop = image[y1:y2, x1:x2].copy()
+
                 # Quality check on cropped face
                 self.quality.check(crop, face_bbox=face.bbox)
-                
-                # Landmarks ko crop coordinates mein adjust karo
+
+                # Landmarks in crop coordinates
                 landmarks = None
-                if hasattr(face, 'kps') and face.kps is not None:
+                if hasattr(face, "kps") and face.kps is not None:
                     adjusted = face.kps.copy()
                     adjusted[:, 0] -= x1
                     adjusted[:, 1] -= y1
                     landmarks = adjusted.tolist()
-                
-                # 🔥 NEW: Embedding directly from InsightFace face object
+
+                # Direct embedding from InsightFace face object
                 raw_embedding = None
-                if hasattr(face, 'embedding') and face.embedding is not None:
+                if hasattr(face, "embedding") and face.embedding is not None:
                     raw_embedding = face.embedding.copy()
-                    logger.debug(f"Embedding extracted: shape={raw_embedding.shape}")
-                
-                results.append(FaceDetectionResult(
-                    bounding_box=face.bbox.astype(float).tolist(),
-                    landmarks=landmarks,
-                    detection_score=float(face.det_score),
-                    face_image=crop,
-                    embedding=raw_embedding,  # 🔥 NEW
-                ))
+
+                results.append(
+                    FaceDetectionResult(
+                        bounding_box=face.bbox.astype(float).tolist(),
+                        landmarks=landmarks,
+                        detection_score=float(face.det_score),
+                        face_image=crop,
+                        embedding=raw_embedding,
+                    )
+                )
             except Exception as e:
-                logger.warning(f"Skipping face due to error: {e}")
+                logger.warning(f"Skipping detected face due to error: {e}")
                 continue
-        
+
         if not results:
             raise NoFaceDetectedError("Faces detected but failed quality/validation checks")
-        
+
         return results
 
     def detect_single(self, image: np.ndarray) -> Optional[FaceDetectionResult]:

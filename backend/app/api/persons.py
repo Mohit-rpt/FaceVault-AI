@@ -1,5 +1,6 @@
 import logging
 import os
+import gc
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -562,6 +563,10 @@ def register_face(
 
         finally:
             upload_file.file.close()
+            contents = None
+            nparr = None
+            image = None
+            gc.collect()
             details.append(detail)
 
     if embeddings_created == 0 or registered == 0:
