@@ -47,10 +47,13 @@ class FaceDetector:
         self.quality = quality_assessor or ImageQualityAssessor()
         
         logger.info(f"Initializing FaceDetector: {model_name}")
+        print("🔥 BEFORE INSIGHTFACE LOAD")
         self.app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'],allowed_modules=['detection', 'recognition'])
+        print("🔥 AFTER INSIGHTFACE LOAD")
         self.app.prepare(ctx_id=ctx_id, det_size=det_size)
+        print("🔥 AFTER PREPARE")
         process = psutil.Process(os.getpid())
-
+        
         logger.info(
             f"RAM usage: {process.memory_info().rss / 1024 / 1024:.2f} MB"
         )
