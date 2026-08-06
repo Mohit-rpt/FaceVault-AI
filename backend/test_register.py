@@ -1,6 +1,6 @@
 import requests
 
-url = "http://127.0.0.1:8000/api/v1/persons/4/register-face"
+url = "https://facevault-backend-85sn.onrender.com/api/v1/persons/4/register-face"
 
 # Apni photos ke paths yahan daalo
 photo_paths = [

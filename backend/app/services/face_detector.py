@@ -38,7 +38,7 @@ class FaceDetector:
         self,
         model_name: str = "buffalo_s",
         ctx_id: int = -1,
-        det_size: tuple = (640, 640),
+        det_size: tuple = (320,320),
         validator: Optional[ImageValidator] = None,
         quality_assessor: Optional[ImageQualityAssessor] = None,
     ):

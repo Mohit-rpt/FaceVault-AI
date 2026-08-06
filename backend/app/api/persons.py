@@ -25,6 +25,7 @@ from app.services import (
 from app.core.response import success_response, error_response
 from app.core.exceptions import NotFoundException
 from app.core.utils import get_image_url
+from app.services.face_detector_instance import get_face_detector
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +432,7 @@ def register_face(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
-    detector = FaceDetector()
+    detector = get_face_detector()
     embedder = EmbeddingService()
     validator = ImageValidator()
     quality_assessor = ImageQualityAssessor()

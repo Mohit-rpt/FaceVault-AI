@@ -323,7 +323,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            'Make sure backend server is running.\nIf using Android Emulator, use 10.0.2.2 instead of 127.0.0.1.',
+                            'Please check your internet connection and backend server.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                           ),

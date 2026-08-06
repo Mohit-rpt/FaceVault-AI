@@ -30,6 +30,9 @@ from app.core.response import success_response
 from app.core.utils import get_image_url
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from app.services.face_detector_instance import get_face_detector
+
+detector = get_face_detector()
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,7 @@ def get_recognition_service(db: Session = Depends(get_db)) -> RecognitionService
     """
     return RecognitionService(
         db=db,
-        detector=FaceDetector(),
+        detector=detector,
         embedder=EmbeddingService(),
     )
 
@@ -104,7 +107,7 @@ async def recognize_faces(
         # Initialize recognition service
         service = RecognitionService(
             db=db,
-            detector=FaceDetector(),
+            detector=get_face_detector(),
             embedder=EmbeddingService(),
         )
 

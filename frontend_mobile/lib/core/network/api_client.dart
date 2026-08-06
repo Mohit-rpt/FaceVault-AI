@@ -192,7 +192,11 @@ class ApiClient {
       final response = await _dio.post(
         path,
         data: formData,
-        options: Options(contentType: 'multipart/form-data'),
+        options: Options(
+          contentType: 'multipart/form-data',
+          sendTimeout: const Duration(seconds: 120),
+          receiveTimeout: const Duration(seconds: 120),
+        ),
       );
       return _processResponse(response);
     } on DioException catch (e) {

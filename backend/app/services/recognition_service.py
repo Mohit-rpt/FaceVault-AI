@@ -63,8 +63,8 @@ class RecognitionService:
     def __init__(
         self,
         db: Session,
-        detector: Optional[FaceDetector] = None,
-        embedder: Optional[EmbeddingService] = None,
+        detector: FaceDetector,
+        embedder: EmbeddingService,
         similarity_engine: Optional[BaseSimilarityEngine] = None,
         validator: Optional[ImageValidator] = None,
         quality_assessor: Optional[ImageQualityAssessor] = None,
@@ -73,8 +73,10 @@ class RecognitionService:
         self.db = db
         self.validator = validator or ImageValidator()
         self.quality = quality_assessor or ImageQualityAssessor()
-        self.detector = detector or FaceDetector(validator=self.validator, quality_assessor=self.quality)
-        self.embedder = embedder or EmbeddingService(normalizer=EmbeddingNormalizer())
+
+        self.detector = detector
+        self.embedder = embedder
+
         self.similarity = similarity_engine or CosineSimilarityEngine(db)
         
         self.unknown_faces_dir = unknown_faces_dir or os.getenv("UNKNOWN_FACES_DIR", "storage/unknown_faces")
@@ -216,12 +218,21 @@ class RecognitionService:
                 embedding_vector=EmbeddingNormalizer.to_bytes(emb.embedding),
             )
             self.db.add(db_emb)
+
+            # Get embedding_id without committing
+            self.db.flush()
+
+            # Add to similarity index
+            self.similarity.add_embedding(
+                person_id,
+                db_emb.embedding_id,
+                emb.embedding,
+            )
+
+            # Commit only after both operations succeed
             self.db.commit()
             self.db.refresh(db_emb)
-            
-            # Update similarity index without full reload
-            self.similarity.add_embedding(person_id, db_emb.embedding_id, emb.embedding)
-            
+
             logger.info(f"Registered embedding_id={db_emb.embedding_id}")
             return db_emb
         except Exception as e:

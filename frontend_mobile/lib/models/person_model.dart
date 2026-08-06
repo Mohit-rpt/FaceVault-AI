@@ -1,5 +1,12 @@
 // lib/models/person_model.dart
 
+String? _parseString(dynamic value) {
+  if (value == null) return null;
+  if (value is String) return value;
+  if (value is List) return value.join(', ');
+  return value.toString();
+}
+
 class CustomFieldModel {
   final int? fieldId;
   final int? personId;
@@ -17,8 +24,8 @@ class CustomFieldModel {
     return CustomFieldModel(
       fieldId: json['field_id'] as int?,
       personId: json['person_id'] as int?,
-      fieldName: json['field_name'] ?? '',
-      fieldValue: json['field_value'] as String?,
+      fieldName: _parseString(json['field_name']) ?? '',
+      fieldValue: _parseString(json['field_value']),
     );
   }
 
@@ -71,20 +78,20 @@ class PersonDetailModel {
     return PersonDetailModel(
       detailsId: json['details_id'] as int?,
       personId: json['person_id'] as int?,
-      gender: json['gender'] as String?,
-      department: json['department'] as String?,
-      employeeId: json['employee_id'] as String?,
-      phone: json['phone'] as String?,
-      email: json['email'] as String?,
-      college: json['college'] as String?,
-      company: json['company'] as String?,
-      designation: json['designation'] as String?,
-      address: json['address'] as String?,
-      city: json['city'] as String?,
-      state: json['state'] as String?,
-      country: json['country'] as String?,
-      birthday: json['birthday'] as String?,
-      remarks: json['remarks'] as String?,
+      gender: _parseString(json['gender']),
+      department: _parseString(json['department']),
+      employeeId: _parseString(json['employee_id']),
+      phone: _parseString(json['phone']),
+      email: _parseString(json['email']),
+      college: _parseString(json['college']),
+      company: _parseString(json['company']),
+      designation: _parseString(json['designation']),
+      address: _parseString(json['address']),
+      city: _parseString(json['city']),
+      state: _parseString(json['state']),
+      country: _parseString(json['country']),
+      birthday: _parseString(json['birthday']),
+      remarks: _parseString(json['remarks']),
     );
   }
 
@@ -129,10 +136,10 @@ class FaceImageModel {
     return FaceImageModel(
       imageId: json['image_id'] as int?,
       personId: json['person_id'] as int?,
-      imagePath: json['image_path'] ?? json['url'] ?? '',
-      captureSource: json['capture_source'] as String?,
+      imagePath: _parseString(json['image_path']) ?? _parseString(json['url']) ?? '',
+      captureSource: _parseString(json['capture_source']),
       qualityScore: (json['quality_score'] as num?)?.toDouble(),
-      createdAt: json['created_at'] as String?,
+      createdAt: _parseString(json['created_at']),
     );
   }
 }
@@ -203,18 +210,18 @@ class PersonModel {
       personId: json['person_id'] is int
           ? json['person_id']
           : int.tryParse(json['person_id']?.toString() ?? '0') ?? 0,
-      name: json['name'] ?? json['full_name'] ?? 'Unknown',
-      nickname: json['nickname'] as String?,
-      relationship: json['relationship'] as String?,
-      createdAt: json['created_at'] as String?,
-      updatedAt: json['updated_at'] as String?,
+      name: _parseString(json['name']) ?? _parseString(json['full_name']) ?? 'Unknown',
+      nickname: _parseString(json['nickname']),
+      relationship: _parseString(json['relationship']),
+      createdAt: _parseString(json['created_at']),
+      updatedAt: _parseString(json['updated_at']),
       details: json['details'] != null
           ? PersonDetailModel.fromJson(json['details'] as Map<String, dynamic>)
           : null,
       images: imagesList,
       customFields: customFieldsList,
       embeddingsCount: embeddingsCount,
-      lastSeen: json['last_seen'] as String?,
+      lastSeen: _parseString(json['last_seen']),
     );
   }
 
