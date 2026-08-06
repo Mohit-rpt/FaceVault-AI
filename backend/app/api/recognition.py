@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 from app.services.face_detector_instance import get_face_detector
 
-detector = get_face_detector()
+# detector = get_face_detector()
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def get_recognition_service(db: Session = Depends(get_db)) -> RecognitionService
     """
     return RecognitionService(
         db=db,
-        detector=detector,
+        detector=None,
         embedder=EmbeddingService(),
     )
 
