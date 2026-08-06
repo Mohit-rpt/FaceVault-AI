@@ -183,7 +183,7 @@ class RecognitionService:
         self,
         person_id: int,
         face_image: np.ndarray,
-        model_name: str = "buffalo_s",
+        model_name: str = "buffalo_sc",
         capture_angle: Optional[str] = None,
         capture_source: Optional[str] = None,
         quality_score: Optional[float] = None,

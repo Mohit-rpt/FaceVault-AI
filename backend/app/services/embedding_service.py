@@ -9,8 +9,6 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
-from insightface.app import FaceAnalysis
-from insightface.model_zoo import model_zoo
 from pydantic import BaseModel, ConfigDict
 
 from .exceptions import InvalidImageError, EmbeddingGenerationError
@@ -42,6 +40,6 @@ class EmbeddingService:
         normalized = self.normalizer.normalize(raw_embedding)
         return EmbeddingResult(
             embedding=normalized,
-            model_name="buffalo_s",
+            model_name="buffalo_sc",
             dimension=normalized.shape[0],
         )

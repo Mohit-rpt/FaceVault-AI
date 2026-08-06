@@ -527,7 +527,7 @@ def register_face(
             db_embedding = models.FaceEmbedding(
                 person_id=person_id,
                 faiss_vector_id=idx + 1,
-                model_name="buffalo_l",
+                model_name="buffalo_sc",
                 model_version="1.0",
                 embedding_dimension=emb_result.dimension,
                 quality_score=face.detection_score,

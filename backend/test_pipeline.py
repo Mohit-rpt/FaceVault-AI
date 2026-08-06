@@ -51,7 +51,7 @@ def test_full_pipeline():
         db_emb = FaceEmbedding(
             person_id=person.person_id,
             faiss_vector_id=i + 1,
-            model_name="buffalo_l",
+            model_name="buffalo_sc",
             model_version="1.0",
             embedding_dimension=512,
             quality_score=0.98,

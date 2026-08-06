@@ -52,7 +52,7 @@ def test_production_readiness():
         db_emb = FaceEmbedding(
             person_id=person.person_id,
             faiss_vector_id=i + 1,
-            model_name="buffalo_s",
+            model_name="buffalo_sc",
             model_version="1.0",
             embedding_dimension=512,
             quality_score=0.99,

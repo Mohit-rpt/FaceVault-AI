@@ -46,7 +46,7 @@ class FaceDetector:
 
     def __init__(
         self,
-        model_name: str = "buffalo_s",
+        model_name: str = "buffalo_sc",
         ctx_id: int = -1,
         det_size: tuple = (320, 320),
         validator: Optional[ImageValidator] = None,
@@ -55,7 +55,6 @@ class FaceDetector:
         self.validator = validator or ImageValidator()
         self.quality = quality_assessor or ImageQualityAssessor()
 
-        logger.info(f"Initializing Singleton FaceDetector model: {model_name}")
         self.app = FaceAnalysis(
             name=model_name,
             providers=["CPUExecutionProvider"],
@@ -63,7 +62,9 @@ class FaceDetector:
         )
         self.app.prepare(ctx_id=ctx_id, det_size=det_size)
 
-        logger.info("InsightFace model loaded successfully into Singleton instance.")
+        logger.info("✅ InsightFace singleton initialized")
+        logger.info(f"✅ {model_name} loaded")
+        logger.info("✅ ONNX Runtime initialized")
 
     def detect(self, image: np.ndarray) -> List[FaceDetectionResult]:
         """Detect faces with validation, quality checks, and memory optimization."""
