@@ -26,6 +26,7 @@ from .image_validator import ImageValidator
 from .image_quality import ImageQualityAssessor
 from .face_alignment import FaceAlignment
 from .embedding_normalizer import EmbeddingNormalizer
+from app.services.face_detector_instance import get_face_detector
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class RecognitionService:
         self.validator = validator or ImageValidator()
         self.quality = quality_assessor or ImageQualityAssessor()
 
-        self.detector = detector
+        self.detector = detector or get_face_detector()
         self.embedder = embedder
 
         self.similarity = similarity_engine or CosineSimilarityEngine(db)
@@ -182,7 +183,7 @@ class RecognitionService:
         self,
         person_id: int,
         face_image: np.ndarray,
-        model_name: str = "buffalo_l",
+        model_name: str = "buffalo_s",
         capture_angle: Optional[str] = None,
         capture_source: Optional[str] = None,
         quality_score: Optional[float] = None,

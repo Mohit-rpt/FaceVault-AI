@@ -3,7 +3,8 @@ Face Detection Service using InsightFace.
 
 Detects faces, returns bounding boxes, landmarks, crops, AND embeddings.
 """
-
+import os
+import psutil
 import logging
 from typing import List, Optional
 
@@ -46,8 +47,13 @@ class FaceDetector:
         self.quality = quality_assessor or ImageQualityAssessor()
         
         logger.info(f"Initializing FaceDetector: {model_name}")
-        self.app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'])
+        self.app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'],allowed_modules=['detection', 'recognition'])
         self.app.prepare(ctx_id=ctx_id, det_size=det_size)
+        process = psutil.Process(os.getpid())
+
+        logger.info(
+            f"RAM usage: {process.memory_info().rss / 1024 / 1024:.2f} MB"
+        )
         logger.info("FaceDetector ready")
 
     def detect(self, image: np.ndarray) -> List[FaceDetectionResult]:

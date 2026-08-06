@@ -107,7 +107,7 @@ async def recognize_faces(
         # Initialize recognition service
         service = RecognitionService(
             db=db,
-            detector=get_face_detector(),
+            detector=None,
             embedder=EmbeddingService(),
         )
 
