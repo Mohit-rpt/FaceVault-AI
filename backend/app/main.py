@@ -7,6 +7,7 @@ from app.database.database import engine, Base
 from app.api import persons_router, recognition_router, settings_router, camera_router
 from app.core.exceptions import FaceVaultException
 from app.core.response import error_response
+from pathlib import Path
 
 # Auto-create database tables
 Base.metadata.create_all(bind=engine)
@@ -34,6 +35,9 @@ app.include_router(settings_router, prefix="/api/v1")
 app.include_router(camera_router, prefix="/api/v1")
 
 # Mount Static File Server
+
+
+Path("storage").mkdir(exist_ok=True)
 app.mount("/storage", StaticFiles(directory="storage"), name="storage")
 
 @app.get("/")
