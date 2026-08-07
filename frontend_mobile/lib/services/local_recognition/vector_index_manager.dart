@@ -51,10 +51,21 @@ class VectorIndexManager {
   bool _isLoaded = false;
   int _lastVersion = -1;
 
-  VectorIndexManager({required this.localStore});
+  VectorIndexManager({HiveEmbeddingStore? localStore})
+      : localStore = localStore ?? HiveEmbeddingStore();
 
   bool get isLoaded => _isLoaded;
   int get count => _index.length;
+  int get embeddingCount => _index.length;
+
+  /// Execute dot product cosine similarity search returning list of matches.
+  List<VectorMatchResult> search(Float32List queryVector, {int topK = 1}) {
+    final result = searchNearest(queryVector);
+    if (result != null) {
+      return [result];
+    }
+    return [];
+  }
 
   /// Load embeddings from Hive local storage into RAM vector matrix.
   Future<void> initialize() async {

@@ -7,6 +7,7 @@ import '../../shared/widgets/futuristic_app_bar.dart';
 import '../../providers/app_providers.dart';
 import '../../services/camera/camera_service.dart';
 import '../../services/camera/frame_processor.dart';
+import '../../services/local_recognition/local_recognition_result.dart';
 import 'widgets/camera_status_card.dart';
 import 'widgets/camera_preview_card.dart';
 import 'widgets/camera_list_card.dart';
@@ -20,6 +21,9 @@ class CameraScreen extends ConsumerStatefulWidget {
 }
 
 class _CameraScreenState extends ConsumerState<CameraScreen> {
+  final ValueNotifier<List<LocalRecognitionResult>> _recognitionResultsNotifier =
+      ValueNotifier<List<LocalRecognitionResult>>([]);
+
   final List<Map<String, dynamic>> _cameras = [
     {
       'id': '1',
@@ -121,6 +125,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   @override
   void dispose() {
     _stopHardwareCamera();
+    _recognitionResultsNotifier.dispose();
     super.dispose();
   }
 
@@ -141,10 +146,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
               ValueListenableBuilder<FrameProcessorMetrics>(
                 valueListenable: processor.metricsNotifier,
                 builder: (context, metrics, _) {
-                  return CameraPreviewCard(
-                    camera: _activeCamera,
-                    cameraService: cameraService,
-                    metrics: metrics,
+                  return ValueListenableBuilder<List<LocalRecognitionResult>>(
+                    valueListenable: _recognitionResultsNotifier,
+                    builder: (context, recognitionResults, _) {
+                      return CameraPreviewCard(
+                        camera: _activeCamera,
+                        cameraService: cameraService,
+                        metrics: metrics,
+                        recognitionResults: recognitionResults,
+                      );
+                    },
                   );
                 },
               ),

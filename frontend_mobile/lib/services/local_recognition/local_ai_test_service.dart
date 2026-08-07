@@ -3,14 +3,18 @@
 import 'package:flutter/foundation.dart';
 import '../local_storage/hive_embedding_store.dart';
 import 'local_recognition_engine_impl.dart';
+import 'vector_index_manager.dart';
 
 /// Developer Test Utility for Phase 3A Local AI Engine Validation.
 class LocalAiTestService {
   final HiveEmbeddingStore localStore;
   late final LocalRecognitionEngineImpl engine;
 
-  LocalAiTestService({required this.localStore}) {
-    engine = LocalRecognitionEngineImpl(localStore: localStore);
+  LocalAiTestService({HiveEmbeddingStore? localStore})
+      : localStore = localStore ?? HiveEmbeddingStore() {
+    engine = LocalRecognitionEngineImpl(
+      vectorIndexManager: VectorIndexManager(localStore: this.localStore),
+    );
   }
 
   /// Run developer validation test pipeline.
@@ -32,8 +36,8 @@ class LocalAiTestService {
       final results = engine.recognizeFromEmbedding(testQueryVector);
       sw.stop();
 
-      final bool matchFound = results.isNotEmpty && results.first.isRecognized;
-      final String matchName = matchFound ? (results.first.personName ?? 'Unknown') : 'No Match';
+      final bool matchFound = results.isNotEmpty && results.first.isMatch;
+      final String matchName = matchFound ? results.first.personName : 'No Match';
       final double confidence = results.isNotEmpty ? results.first.confidence : 0.0;
 
       final summary = '✅ [Developer Test] Pipeline Executed in ${sw.elapsedMilliseconds} ms | Result: $matchName (${confidence.toStringAsFixed(1)}%)';

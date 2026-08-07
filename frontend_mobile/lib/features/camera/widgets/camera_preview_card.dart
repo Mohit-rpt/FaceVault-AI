@@ -6,17 +6,21 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../services/camera/camera_service.dart';
 import '../../../services/camera/frame_processor.dart';
+import '../../../services/local_recognition/local_recognition_result.dart';
+import 'recognition_overlay.dart';
 
 class CameraPreviewCard extends StatelessWidget {
   final Map<String, dynamic> camera;
   final CameraService? cameraService;
   final FrameProcessorMetrics? metrics;
+  final List<LocalRecognitionResult>? recognitionResults;
 
   const CameraPreviewCard({
     super.key,
     required this.camera,
     this.cameraService,
     this.metrics,
+    this.recognitionResults,
   });
 
   @override
@@ -98,6 +102,13 @@ class CameraPreviewCard extends StatelessWidget {
                                 : AppTheme.errorRed.withOpacity(0.6),
                           ),
                         ),
+                  // Glowing Neon Recognition Overlay (Phase 3B-2B Live HUD)
+                  if (hasRealController && isConnected && recognitionResults != null && recognitionResults!.isNotEmpty)
+                    RecognitionOverlay(
+                      recognitionResults: recognitionResults!,
+                      lensDirection: cameraService!.currentLensDirection,
+                      sensorOrientation: cameraService!.sensorOrientation,
+                    ),
                   // HUD Corners
                   CustomPaint(
                     size: Size.infinite,

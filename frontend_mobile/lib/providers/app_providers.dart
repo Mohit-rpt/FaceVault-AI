@@ -76,12 +76,8 @@ final vectorIndexManagerProvider = Provider<VectorIndexManager>((ref) {
 });
 
 final localRecognitionEngineProvider = Provider<LocalRecognitionEngineImpl>((ref) {
-  final store = ref.watch(hiveEmbeddingStoreProvider);
-  final loader = ref.watch(modelLoaderProvider);
   final index = ref.watch(vectorIndexManagerProvider);
   return LocalRecognitionEngineImpl(
-    localStore: store,
-    modelLoader: loader,
     vectorIndexManager: index,
   );
 });
