@@ -31,4 +31,7 @@ class Settings:
         if origin.strip()
     ]
 
+    # Phase 2: Edge AI feature flag (disabled until edge recognition is implemented)
+    EDGE_AI_ENABLED: bool = False
+
 settings = Settings()

@@ -4,7 +4,6 @@ Face Detection Service using InsightFace (Memory & Singleton Optimized).
 Detects faces, returns bounding boxes, landmarks, crops, AND embeddings.
 """
 import os
-import gc
 import logging
 from typing import List, Optional
 

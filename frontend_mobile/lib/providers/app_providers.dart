@@ -11,9 +11,27 @@ import '../services/person_service.dart';
 import '../services/recognition_service.dart';
 import '../services/timeline_service.dart';
 import '../services/settings_service.dart';
+import '../services/local_storage/hive_embedding_store.dart';
+import '../services/sync/sync_repository.dart';
+import '../services/sync/sync_manager.dart';
 
 // Core Client & Services Providers
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+
+final hiveEmbeddingStoreProvider = Provider<HiveEmbeddingStore>((ref) {
+  return HiveEmbeddingStore();
+});
+
+final syncRepositoryProvider = Provider<SyncRepository>((ref) {
+  final client = ref.watch(apiClientProvider);
+  final localStore = ref.watch(hiveEmbeddingStoreProvider);
+  return SyncRepository(apiClient: client, localStore: localStore);
+});
+
+final syncManagerProvider = Provider<SyncManager>((ref) {
+  final repo = ref.watch(syncRepositoryProvider);
+  return SyncManager(repository: repo);
+});
 
 final authServiceProvider = Provider<AuthService>((ref) {
   final client = ref.watch(apiClientProvider);

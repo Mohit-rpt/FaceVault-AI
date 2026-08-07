@@ -32,6 +32,7 @@ class Person(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, server_default=func.now(), onupdate=func.now()
     )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     details: Mapped[Optional["PersonDetail"]] = orm_relationship(
         back_populates="person", uselist=False, cascade="all, delete-orphan"
@@ -100,9 +101,14 @@ class FaceEmbedding(Base):
     capture_angle: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     capture_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    embedding_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, server_default=func.now()
     )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     embedding_vector: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
 
     person: Mapped["Person"] = orm_relationship(back_populates="embeddings")

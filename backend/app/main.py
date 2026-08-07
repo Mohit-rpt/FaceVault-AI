@@ -1,4 +1,3 @@
-import os
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database.database import engine, Base
-from app.api import persons_router, recognition_router, settings_router, camera_router
+from app.api import persons_router, recognition_router, settings_router, camera_router, sync_router
 from app.core.exceptions import FaceVaultException
 from app.core.response import error_response
 from app.services.face_detector_instance import get_face_detector
@@ -62,6 +61,7 @@ app.include_router(persons_router, prefix="/api/v1")
 app.include_router(recognition_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(camera_router, prefix="/api/v1")
+app.include_router(sync_router, prefix="/api/v1")
 
 # Mount Static File Server
 Path("storage").mkdir(exist_ok=True)

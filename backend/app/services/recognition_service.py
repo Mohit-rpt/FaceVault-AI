@@ -14,6 +14,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.models import Person, FaceEmbedding, RecognitionLog
@@ -206,6 +207,7 @@ class RecognitionService:
         emb = self.embedder.get_embedding(face.embedding)
         
         try:
+            next_ver = (self.db.query(func.max(FaceEmbedding.embedding_version)).scalar() or 0) + 1
             db_emb = FaceEmbedding(
                 person_id=person_id,
                 faiss_vector_id=0,
@@ -216,6 +218,8 @@ class RecognitionService:
                 capture_angle=capture_angle,
                 capture_source=capture_source,
                 is_active=True,
+                embedding_version=next_ver,
+                is_deleted=False,
                 embedding_vector=EmbeddingNormalizer.to_bytes(emb.embedding),
             )
             self.db.add(db_emb)

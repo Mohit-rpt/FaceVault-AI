@@ -5,14 +5,12 @@ Generates 512-dim embeddings with alignment and normalization.
 """
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
-import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from .exceptions import InvalidImageError, EmbeddingGenerationError
-from .face_alignment import FaceAlignment
+from .exceptions import EmbeddingGenerationError
 from .embedding_normalizer import EmbeddingNormalizer
 
 logger = logging.getLogger(__name__)
