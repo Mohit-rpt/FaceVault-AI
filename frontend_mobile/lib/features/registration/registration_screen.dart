@@ -73,7 +73,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   formData: formData,
                   onBack: _previousStep,
                   onSaveSuccess: () {
-                    Navigator.pop(context);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      setState(() {
+                        _currentStep = 0;
+                        capturedImagePaths.clear();
+                        formData.clear();
+                      });
+                      _controller.jumpToPage(0);
+                    }
                   },
                 ),
               ],

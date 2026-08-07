@@ -195,19 +195,23 @@ export default function RegisterFace() {
               {result.data && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="p-3 rounded-lg bg-white/5 text-center">
-                    <p className="text-lg font-bold text-white">{result.data.registered_images}</p>
+                    <p className="text-lg font-bold text-white">{result.data.registered_images ?? 0}</p>
                     <p className="text-[10px] text-cyber-muted font-mono">REGISTERED</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white/5 text-center">
-                    <p className="text-lg font-bold text-white">{result.data.failed_images}</p>
+                    <p className="text-lg font-bold text-white">{result.data.failed_images ?? 0}</p>
                     <p className="text-[10px] text-cyber-muted font-mono">FAILED</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white/5 text-center">
-                    <p className="text-lg font-bold text-cyber-cyan">{result.data.embeddings_created}</p>
+                    <p className="text-lg font-bold text-cyber-cyan">{result.data.embeddings_created ?? 0}</p>
                     <p className="text-[10px] text-cyber-muted font-mono">EMBEDDINGS</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white/5 text-center">
-                    <p className="text-lg font-bold text-emerald-400">{result.data.average_quality?.toFixed(1)}</p>
+                    <p className="text-lg font-bold text-emerald-400">
+                      {typeof result.data.average_quality === "number"
+                        ? result.data.average_quality.toFixed(1)
+                        : (result.data.average_quality ?? "0.0")}
+                    </p>
                     <p className="text-[10px] text-cyber-muted font-mono">AVG QUALITY</p>
                   </div>
                 </div>

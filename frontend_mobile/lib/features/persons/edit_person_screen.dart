@@ -85,6 +85,7 @@ class _EditPersonScreenState extends ConsumerState<EditPersonScreen> {
     setState(() => _isSaving = true);
 
     try {
+      final service = ref.read(personServiceProvider);
       final String bdayRaw = _birthdayCtrl.text.trim();
       String? birthdayVal;
       if (bdayRaw.isNotEmpty) {
