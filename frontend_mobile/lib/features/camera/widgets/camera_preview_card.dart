@@ -1,35 +1,65 @@
+// lib/features/camera/widgets/camera_preview_card.dart
+
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/glass_card.dart';
+import '../../../services/camera/camera_service.dart';
+import '../../../services/camera/frame_processor.dart';
 
 class CameraPreviewCard extends StatelessWidget {
   final Map<String, dynamic> camera;
-  const CameraPreviewCard({super.key, required this.camera});
+  final CameraService? cameraService;
+  final FrameProcessorMetrics? metrics;
+
+  const CameraPreviewCard({
+    super.key,
+    required this.camera,
+    this.cameraService,
+    this.metrics,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isConnected = camera['status'] == 'Connected';
+    final hasRealController = cameraService != null &&
+        cameraService!.controller != null &&
+        cameraService!.controller!.value.isInitialized;
 
     return GlassCard(
       padding: const EdgeInsets.all(8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Text(
-              'LIVE CAMERA FEED',
-              style: TextStyle(
-                letterSpacing: 1.5,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-                color: AppTheme.neonCyan,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text(
+                  'LIVE CAMERA FEED',
+                  style: TextStyle(
+                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: AppTheme.neonCyan,
+                  ),
+                ),
               ),
-            ),
+              if (metrics != null)
+                Text(
+                  'Cam: ${metrics!.cameraFps.toStringAsFixed(1)} FPS | Proc: ${metrics!.processingFps.toStringAsFixed(1)} FPS',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'Orbitron',
+                    color: AppTheme.neonGreen.withOpacity(0.9),
+                  ),
+                ),
+            ],
           ),
-          // Mock preview
+          // Live Camera Preview Container
           Container(
-            height: 200,
+            height: 220,
             decoration: BoxDecoration(
               color: Colors.black,
               borderRadius: BorderRadius.circular(12),
@@ -48,52 +78,97 @@ class CameraPreviewCard extends StatelessWidget {
                     ]
                   : null,
             ),
-            child: Stack(
-              children: [
-                // Dark camera placeholder
-                Center(
-                  child: Icon(
-                    isConnected ? Icons.videocam : Icons.videocam_off,
-                    size: 48,
-                    color: isConnected
-                        ? AppTheme.neonGreen.withOpacity(0.6)
-                        : AppTheme.errorRed.withOpacity(0.6),
-                  ),
-                ),
-                // HUD corners
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: _HudCornersPainter(
-                    color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
-                  ),
-                ),
-                // Connection indicator
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isConnected
-                            ? AppTheme.neonGreen.withOpacity(0.5)
-                            : AppTheme.errorRed.withOpacity(0.5),
-                      ),
-                    ),
-                    child: Text(
-                      isConnected ? 'CONNECTED' : 'OFFLINE',
-                      style: TextStyle(
-                        color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                      ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Real Hardware Camera Preview or Dark Icon Fallback
+                  hasRealController && isConnected
+                      ? AspectRatio(
+                          aspectRatio: cameraService!.controller!.value.aspectRatio,
+                          child: CameraPreview(cameraService!.controller!),
+                        )
+                      : Center(
+                          child: Icon(
+                            isConnected ? Icons.videocam : Icons.videocam_off,
+                            size: 48,
+                            color: isConnected
+                                ? AppTheme.neonGreen.withOpacity(0.6)
+                                : AppTheme.errorRed.withOpacity(0.6),
+                          ),
+                        ),
+                  // HUD Corners
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: _HudCornersPainter(
+                      color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
                     ),
                   ),
-                ),
-              ],
+                  // Debug Panel Overlay (Phase 3B-1 Debug Metrics)
+                  if (metrics != null && isConnected)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black70,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'FACES DETECTED: ${metrics!.detectedFaceCount}',
+                              style: const TextStyle(
+                                color: AppTheme.neonCyan,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            Text(
+                              'DROPPED: ${metrics!.framesDropped} | AVG PROC: ${metrics!.averageProcessingTimeMs}ms',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary.withOpacity(0.8),
+                                fontSize: 8,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  // Connection Indicator
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isConnected
+                              ? AppTheme.neonGreen.withOpacity(0.5)
+                              : AppTheme.errorRed.withOpacity(0.5),
+                        ),
+                      ),
+                      child: Text(
+                        isConnected ? 'CONNECTED' : 'OFFLINE',
+                        style: TextStyle(
+                          color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -115,8 +190,8 @@ class _HudCornersPainter extends CustomPainter {
 
     const cornerLength = 20.0;
     // Top-left
-    canvas.drawLine(Offset(8, cornerLength), Offset(8, 8), paint);
-    canvas.drawLine(Offset(8, 8), Offset(cornerLength, 8), paint);
+    canvas.drawLine(const Offset(8, cornerLength), const Offset(8, 8), paint);
+    canvas.drawLine(const Offset(8, 8), const Offset(cornerLength, 8), paint);
     // Top-right
     canvas.drawLine(Offset(size.width - cornerLength, 8), Offset(size.width - 8, 8), paint);
     canvas.drawLine(Offset(size.width - 8, 8), Offset(size.width - 8, cornerLength), paint);

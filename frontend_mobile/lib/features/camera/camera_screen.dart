@@ -1,21 +1,25 @@
 // lib/features/camera/camera_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/futuristic_app_bar.dart';
+import '../../providers/app_providers.dart';
+import '../../services/camera/camera_service.dart';
+import '../../services/camera/frame_processor.dart';
 import 'widgets/camera_status_card.dart';
 import 'widgets/camera_preview_card.dart';
 import 'widgets/camera_list_card.dart';
 import 'widgets/camera_controls.dart';
 
-class CameraScreen extends StatefulWidget {
+class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({super.key});
 
   @override
-  State<CameraScreen> createState() => _CameraScreenState();
+  ConsumerState<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends ConsumerState<CameraScreen> {
   final List<Map<String, dynamic>> _cameras = [
     {
       'id': '1',
@@ -54,6 +58,26 @@ class _CameraScreenState extends State<CameraScreen> {
     super.initState();
     _selectedIndex = 0;
     _activeCamera = Map.from(_cameras.first);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startHardwareCamera();
+    });
+  }
+
+  Future<void> _startHardwareCamera() async {
+    final cameraService = ref.read(cameraServiceProvider);
+    final processor = ref.read(frameProcessorProvider);
+
+    final bool ok = await cameraService.initialize();
+    if (ok) {
+      await cameraService.startImageStream(processor.onCameraFrame);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _stopHardwareCamera() async {
+    final cameraService = ref.read(cameraServiceProvider);
+    await cameraService.stopImageStream();
   }
 
   void _selectCamera(int index) {
@@ -63,13 +87,27 @@ class _CameraScreenState extends State<CameraScreen> {
     });
   }
 
-  void _toggleConnection() {
-    setState(() {
-      final currentStatus = _activeCamera['status'];
-      _activeCamera['status'] =
-          currentStatus == 'Connected' ? 'Disconnected' : 'Connected';
-      _cameras[_selectedIndex]['status'] = _activeCamera['status'];
-    });
+  void _toggleConnection() async {
+    final cameraService = ref.read(cameraServiceProvider);
+    final processor = ref.read(frameProcessorProvider);
+
+    final currentStatus = _activeCamera['status'];
+    if (currentStatus == 'Connected') {
+      await cameraService.stopImageStream();
+      setState(() {
+        _activeCamera['status'] = 'Disconnected';
+        _cameras[_selectedIndex]['status'] = 'Disconnected';
+      });
+    } else {
+      final bool ok = await cameraService.initialize();
+      if (ok) {
+        await cameraService.startImageStream(processor.onCameraFrame);
+      }
+      setState(() {
+        _activeCamera['status'] = ok ? 'Connected' : 'Disconnected';
+        _cameras[_selectedIndex]['status'] = _activeCamera['status'];
+      });
+    }
   }
 
   void _addCamera(Map<String, dynamic> newCamera) {
@@ -81,7 +119,16 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   @override
+  void dispose() {
+    _stopHardwareCamera();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final cameraService = ref.watch(cameraServiceProvider);
+    final processor = ref.watch(frameProcessorProvider);
+
     return Scaffold(
       appBar: const FuturisticAppBar(title: 'CAMERA CONTROL'),
       body: SafeArea(
@@ -91,7 +138,16 @@ class _CameraScreenState extends State<CameraScreen> {
             children: [
               CameraStatusCard(camera: _activeCamera),
               const SizedBox(height: 16),
-              CameraPreviewCard(camera: _activeCamera),
+              ValueListenableBuilder<FrameProcessorMetrics>(
+                valueListenable: processor.metricsNotifier,
+                builder: (context, metrics, _) {
+                  return CameraPreviewCard(
+                    camera: _activeCamera,
+                    cameraService: cameraService,
+                    metrics: metrics,
+                  );
+                },
+              ),
               const SizedBox(height: 16),
               CameraListCard(
                 cameras: _cameras,
@@ -187,7 +243,7 @@ class _CameraScreenState extends State<CameraScreen> {
                 controller: urlCtrl,
                 style: const TextStyle(color: AppTheme.textPrimary),
                 decoration: InputDecoration(
-                  labelText: 'Stream URL',
+                  labelText: 'Stream URL (Optional)',
                   labelStyle: TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -211,25 +267,22 @@ class _CameraScreenState extends State<CameraScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.neonCyan,
               foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
             ),
             onPressed: () {
-              if (nameCtrl.text.isNotEmpty) {
+              if (nameCtrl.text.trim().isNotEmpty) {
                 _addCamera({
                   'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                  'name': nameCtrl.text,
+                  'name': nameCtrl.text.trim(),
                   'type': cameraType,
                   'status': 'Disconnected',
-                  'resolution': 'Unknown',
-                  'fps': 0,
-                  'url': urlCtrl.text,
+                  'resolution': '1080p',
+                  'fps': 30,
+                  'url': urlCtrl.text.trim(),
                 });
                 Navigator.pop(ctx);
               }
             },
-            child: const Text('CONNECT'),
+            child: const Text('ADD'),
           ),
         ],
       ),

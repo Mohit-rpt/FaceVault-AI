@@ -19,8 +19,25 @@ import '../services/local_recognition/vector_index_manager.dart';
 import '../services/local_recognition/local_recognition_engine_impl.dart';
 import '../services/local_recognition/local_ai_test_service.dart';
 
+import '../services/camera/camera_service.dart';
+import '../services/camera/mobile_face_detector.dart';
+import '../services/camera/frame_processor.dart';
+
 // Core Client & Services Providers
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+
+final cameraServiceProvider = Provider<CameraService>((ref) {
+  return CameraService();
+});
+
+final mobileFaceDetectorProvider = Provider<MobileFaceDetector>((ref) {
+  return MobileFaceDetector();
+});
+
+final frameProcessorProvider = Provider<FrameProcessor>((ref) {
+  final detector = ref.watch(mobileFaceDetectorProvider);
+  return FrameProcessor(detector: detector);
+});
 
 final hiveEmbeddingStoreProvider = Provider<HiveEmbeddingStore>((ref) {
   return HiveEmbeddingStore();

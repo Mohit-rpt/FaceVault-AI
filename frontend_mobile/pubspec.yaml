@@ -20,6 +20,7 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   onnxruntime: ^1.2.0
+  camera: ^0.10.5+9
   
 dev_dependencies:
   flutter_test:
