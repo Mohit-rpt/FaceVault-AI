@@ -18,6 +18,8 @@ import '../services/local_recognition/model_loader.dart';
 import '../services/local_recognition/vector_index_manager.dart';
 import '../services/local_recognition/local_recognition_engine_impl.dart';
 import '../services/local_recognition/local_ai_test_service.dart';
+import '../services/local_recognition/local_face_embedding_pipeline.dart';
+import '../services/local_recognition/embedding_parity_validator.dart';
 
 import '../services/camera/camera_service.dart';
 import '../services/camera/mobile_face_detector.dart';
@@ -37,6 +39,16 @@ final mobileFaceDetectorProvider = Provider<MobileFaceDetector>((ref) {
 final frameProcessorProvider = Provider<FrameProcessor>((ref) {
   final detector = ref.watch(mobileFaceDetectorProvider);
   return FrameProcessor(detector: detector);
+});
+
+final localFaceEmbeddingPipelineProvider = Provider<LocalFaceEmbeddingPipeline>((ref) {
+  final loader = ref.watch(modelLoaderProvider);
+  return LocalFaceEmbeddingPipeline(modelLoader: loader);
+});
+
+final embeddingParityValidatorProvider = Provider<EmbeddingParityValidator>((ref) {
+  final pipeline = ref.watch(localFaceEmbeddingPipelineProvider);
+  return EmbeddingParityValidator(pipeline: pipeline);
 });
 
 final hiveEmbeddingStoreProvider = Provider<HiveEmbeddingStore>((ref) {
