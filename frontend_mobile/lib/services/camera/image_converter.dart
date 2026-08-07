@@ -1,95 +1,187 @@
-// lib/services/camera/image_converter.dart
-
 import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 
+class DetectorTensorResult {
+  final Float32List tensor;
+  final double scaleRatio;
+  final int padX;
+  final int padY;
+  final int originalWidth;
+  final int originalHeight;
+
+  DetectorTensorResult({
+    required this.tensor,
+    required this.scaleRatio,
+    required this.padX,
+    required this.padY,
+    required this.originalWidth,
+    required this.originalHeight,
+  });
+}
+
+class RgbBytesResult {
+  final Uint8List rgbBytes;
+  final int width;
+  final int height;
+
+  RgbBytesResult({
+    required this.rgbBytes,
+    required this.width,
+    required this.height,
+  });
+}
+
 /// Efficient converter for converting raw camera frame buffers (YUV420_888 / BGRA8888) to normalized RGB Float32List.
 class ImageConverter {
-  /// Convert CameraImage (YUV420_888 or BGRA8888) to normalized NCHW RGB Float32List tensor [-1.0, 1.0].
-  static Float32List convertCameraImageToRgbTensor(
+  static DetectorTensorResult convertCameraImageToDetectorTensor(
     CameraImage image, {
-    int targetWidth = 112,
-    int targetHeight = 112,
+    int targetSize = 640,
+    int sensorOrientation = 90,
   }) {
-    final Float32List tensor = Float32List(1 * 3 * targetHeight * targetWidth);
-    final int planeSize = targetHeight * targetWidth;
+    final int origW = image.width;
+    final int origH = image.height;
+    
+    final bool isRotated = sensorOrientation == 90 || sensorOrientation == 270;
+    final int rotW = isRotated ? origH : origW;
+    final int rotH = isRotated ? origW : origH;
 
-    try {
-      if (image.format.group == ImageFormatGroup.yuv420 && image.planes.length >= 3) {
-        final Plane yPlane = image.planes[0];
-        final Plane uPlane = image.planes[1];
-        final Plane vPlane = image.planes[2];
+    final double scaleRatio = math.min(targetSize / rotW, targetSize / rotH);
+    final int newW = (rotW * scaleRatio).round();
+    final int newH = (rotH * scaleRatio).round();
+    
+    final int padX = (targetSize - newW) ~/ 2;
+    final int padY = (targetSize - newH) ~/ 2;
 
-        final int yRowStride = yPlane.bytesPerRow;
-        final int uvRowStride = uPlane.bytesPerRow;
-        final int uvPixelStride = uPlane.bytesPerPixel ?? 1;
+    final Float32List tensor = Float32List(1 * 3 * targetSize * targetSize);
+    
+    if (image.format.group == ImageFormatGroup.yuv420 && image.planes.length >= 3) {
+      final Plane yPlane = image.planes[0];
+      final Plane uPlane = image.planes[1];
+      final Plane vPlane = image.planes[2];
 
-        final double scaleX = image.width / targetWidth;
-        final double scaleY = image.height / targetHeight;
+      final int yRowStride = yPlane.bytesPerRow;
+      final int uvRowStride = uPlane.bytesPerRow;
+      final int uvPixelStride = uPlane.bytesPerPixel ?? 1;
 
-        for (int y = 0; y < targetHeight; y++) {
-          final int srcY = math.min((y * scaleY).toInt(), image.height - 1);
+      final int planeSize = targetSize * targetSize;
+
+      for (int dy = 0; dy < newH; dy++) {
+        for (int dx = 0; dx < newW; dx++) {
+          final int rx = (dx / scaleRatio).floor().clamp(0, rotW - 1);
+          final int ry = (dy / scaleRatio).floor().clamp(0, rotH - 1);
+
+          int srcX = rx;
+          int srcY = ry;
+
+          if (sensorOrientation == 90) {
+            srcX = ry;
+            srcY = origH - 1 - rx;
+          } else if (sensorOrientation == 270) {
+            srcX = origW - 1 - ry;
+            srcY = rx;
+          } else if (sensorOrientation == 180) {
+            srcX = origW - 1 - rx;
+            srcY = origH - 1 - ry;
+          }
+
+          final int yIndex = srcY * yRowStride + srcX;
+          final int uvX = srcX ~/ 2;
           final int uvY = srcY ~/ 2;
+          final int uvIndex = uvY * uvRowStride + (uvX * uvPixelStride);
 
-          for (int x = 0; x < targetWidth; x++) {
-            final int srcX = math.min((x * scaleX).toInt(), image.width - 1);
-            final int uvX = srcX ~/ 2;
+          final int yValue = yPlane.bytes[yIndex] & 0xFF;
+          final int uValue = uPlane.bytes[uvIndex] & 0xFF;
+          final int vValue = vPlane.bytes[uvIndex] & 0xFF;
 
-            final int yIndex = srcY * yRowStride + srcX;
-            final int uvIndex = uvY * uvRowStride + (uvX * uvPixelStride);
+          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
 
-            final int yValue = yPlane.bytes[yIndex] & 0xFF;
-            final int uValue = uPlane.bytes[uvIndex] & 0xFF;
-            final int vValue = vPlane.bytes[uvIndex] & 0xFF;
+          final int outX = padX + dx;
+          final int outY = padY + dy;
+          final int outIdx = outY * targetSize + outX;
 
-            // YUV to RGB Conversion Formula
-            final double yF = yValue.toDouble();
-            final double uF = uValue.toDouble() - 128.0;
-            final double vF = vValue.toDouble() - 128.0;
-
-            final double r = (yF + 1.402 * vF).clamp(0.0, 255.0);
-            final double g = (yF - 0.344136 * uF - 0.714136 * vF).clamp(0.0, 255.0);
-            final double b = (yF + 1.772 * uF).clamp(0.0, 255.0);
-
-            final int planeIdx = y * targetWidth + x;
-            tensor[0 * planeSize + planeIdx] = (r - 127.5) / 127.5; // Red
-            tensor[1 * planeSize + planeIdx] = (g - 127.5) / 127.5; // Green
-            tensor[2 * planeSize + planeIdx] = (b - 127.5) / 127.5; // Blue
-          }
-        }
-      } else if (image.format.group == ImageFormatGroup.bgra8888 && image.planes.isNotEmpty) {
-        final Plane plane = image.planes[0];
-        final int rowStride = plane.bytesPerRow;
-        final double scaleX = image.width / targetWidth;
-        final double scaleY = image.height / targetHeight;
-
-        for (int y = 0; y < targetHeight; y++) {
-          final int srcY = math.min((y * scaleY).toInt(), image.height - 1);
-          for (int x = 0; x < targetWidth; x++) {
-            final int srcX = math.min((x * scaleX).toInt(), image.width - 1);
-            final int pixelIdx = srcY * rowStride + (srcX * 4);
-
-            final int bValue = plane.bytes[pixelIdx + 0] & 0xFF;
-            final int gValue = plane.bytes[pixelIdx + 1] & 0xFF;
-            final int rValue = plane.bytes[pixelIdx + 2] & 0xFF;
-
-            final int planeIdx = y * targetWidth + x;
-            tensor[0 * planeSize + planeIdx] = (rValue - 127.5) / 127.5;
-            tensor[1 * planeSize + planeIdx] = (gValue - 127.5) / 127.5;
-            tensor[2 * planeSize + planeIdx] = (bValue - 127.5) / 127.5;
-          }
-        }
-      } else {
-        // Fallback synthetic tensor
-        for (int i = 0; i < tensor.length; i++) {
-          tensor[i] = ((i % 256) - 127.5) / 127.5;
+          tensor[0 * planeSize + outIdx] = (r - 127.5) / 127.5; // Red
+          tensor[1 * planeSize + outIdx] = (g - 127.5) / 127.5; // Green
+          tensor[2 * planeSize + outIdx] = (b - 127.5) / 127.5; // Blue
         }
       }
-    } catch (e) {
-      debugPrint('⚠️ [ImageConverter] Conversion warning: $e');
+    }
+    
+    return DetectorTensorResult(
+      tensor: tensor,
+      scaleRatio: scaleRatio,
+      padX: padX,
+      padY: padY,
+      originalWidth: rotW,
+      originalHeight: rotH,
+    );
+  }
+
+  static RgbBytesResult convertCameraImageToRgbBytes(
+    CameraImage image, {
+    int sensorOrientation = 90,
+  }) {
+    final int origW = image.width;
+    final int origH = image.height;
+    
+    final bool isRotated = sensorOrientation == 90 || sensorOrientation == 270;
+    final int rotW = isRotated ? origH : origW;
+    final int rotH = isRotated ? origW : origH;
+
+    final Uint8List rgbBytes = Uint8List(rotW * rotH * 3);
+
+    if (image.format.group == ImageFormatGroup.yuv420 && image.planes.length >= 3) {
+      final Plane yPlane = image.planes[0];
+      final Plane uPlane = image.planes[1];
+      final Plane vPlane = image.planes[2];
+
+      final int yRowStride = yPlane.bytesPerRow;
+      final int uvRowStride = uPlane.bytesPerRow;
+      final int uvPixelStride = uPlane.bytesPerPixel ?? 1;
+
+      for (int ry = 0; ry < rotH; ry++) {
+        for (int rx = 0; rx < rotW; rx++) {
+          int srcX = rx;
+          int srcY = ry;
+
+          if (sensorOrientation == 90) {
+            srcX = ry;
+            srcY = origH - 1 - rx;
+          } else if (sensorOrientation == 270) {
+            srcX = origW - 1 - ry;
+            srcY = rx;
+          } else if (sensorOrientation == 180) {
+            srcX = origW - 1 - rx;
+            srcY = origH - 1 - ry;
+          }
+
+          final int yIndex = srcY * yRowStride + srcX;
+          final int uvX = srcX ~/ 2;
+          final int uvY = srcY ~/ 2;
+          final int uvIndex = uvY * uvRowStride + (uvX * uvPixelStride);
+
+          final int yValue = yPlane.bytes[yIndex] & 0xFF;
+          final int uValue = uPlane.bytes[uvIndex] & 0xFF;
+          final int vValue = vPlane.bytes[uvIndex] & 0xFF;
+
+          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
+
+          final int outIdx = (ry * rotW + rx) * 3;
+          rgbBytes[outIdx] = r;
+          rgbBytes[outIdx + 1] = g;
+          rgbBytes[outIdx + 2] = b;
+        }
+      }
     }
 
-    return tensor;
+    return RgbBytesResult(
+      rgbBytes: rgbBytes,
+      width: rotW,
+      height: rotH,
+    );
   }
 }

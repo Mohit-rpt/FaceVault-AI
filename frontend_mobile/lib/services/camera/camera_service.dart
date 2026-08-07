@@ -54,7 +54,7 @@ class CameraService {
   /// Discover available cameras and initialize controller.
   Future<bool> initialize({
     camera_pkg.CameraLensDirection preferredLens = camera_pkg.CameraLensDirection.front,
-    camera_pkg.ResolutionPreset resolution = camera_pkg.ResolutionPreset.medium,
+    camera_pkg.ResolutionPreset resolution = camera_pkg.ResolutionPreset.high,
   }) async {
     if (_state == CameraServiceState.ready || _state == CameraServiceState.streaming) {
       return true;
@@ -107,7 +107,7 @@ class CameraService {
   }
 
   /// Switch between Front and Back camera.
-  Future<bool> switchCamera() async {
+  Future<bool> switchCamera({camera_pkg.ResolutionPreset resolution = camera_pkg.ResolutionPreset.high}) async {
     if (_availableCameras.length <= 1) return false;
 
     final wasStreaming = isStreaming;
@@ -120,6 +120,7 @@ class CameraService {
 
     final success = await initialize(
       preferredLens: _availableCameras[_selectedCameraIndex].lensDirection,
+      resolution: resolution,
     );
 
     return success;

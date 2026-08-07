@@ -1,5 +1,3 @@
-// lib/services/camera/frame_processor.dart
-
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +5,6 @@ import 'frame_queue.dart';
 import 'image_converter.dart';
 import 'mobile_face_detector.dart';
 
-/// Real-time Debug Performance Metrics object.
 class FrameProcessorMetrics {
   final double cameraFps;
   final double processingFps;
@@ -35,13 +32,13 @@ class FrameProcessorMetrics {
   }
 }
 
-/// Orchestrates real-time frame throttling, queueing, background conversion, and face detection.
 class FrameProcessor {
   final MobileFaceDetector detector;
   final FrameQueue frameQueue;
 
-  /// Target processing interval in milliseconds (e.g. 66ms = ~15 FPS, 100ms = ~10 FPS)
   int targetProcessingIntervalMs;
+  int sensorOrientation = 90;
+  
   DateTime _lastProcessedTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   int _framesReceived = 0;
@@ -54,6 +51,14 @@ class FrameProcessor {
   int _procFrameCountWindow = 0;
   double _calculatedCameraFps = 0.0;
   double _calculatedProcFps = 0.0;
+  
+  Uint8List? _latestRgbBytes;
+  int _latestRgbWidth = 0;
+  int _latestRgbHeight = 0;
+
+  Uint8List? get latestRgbBytes => _latestRgbBytes;
+  int get latestRgbWidth => _latestRgbWidth;
+  int get latestRgbHeight => _latestRgbHeight;
 
   final ValueNotifier<FaceDetectionResult?> detectionNotifier = ValueNotifier<FaceDetectionResult?>(null);
   final ValueNotifier<FrameProcessorMetrics> metricsNotifier = ValueNotifier<FrameProcessorMetrics>(
@@ -72,11 +77,10 @@ class FrameProcessor {
   FrameProcessor({
     MobileFaceDetector? detector,
     FrameQueue? frameQueue,
-    this.targetProcessingIntervalMs = 66, // Default 15 FPS sampling
+    this.targetProcessingIntervalMs = 66,
   })  : detector = detector ?? MobileFaceDetector(),
         frameQueue = frameQueue ?? FrameQueue(maxCapacity: 2);
 
-  /// Process incoming raw CameraImage frame from stream.
   void onCameraFrame(CameraImage image) {
     _framesReceived++;
     _cameraFrameCountWindow++;
@@ -85,19 +89,14 @@ class FrameProcessor {
     final now = DateTime.now();
     final elapsedSinceLast = now.difference(_lastProcessedTime).inMilliseconds;
 
-    // Frame Throttling check (skip frames faster than target FPS interval)
     if (elapsedSinceLast < targetProcessingIntervalMs) {
       return;
     }
 
-    // Enqueue frame into bounded queue
     frameQueue.enqueue(image);
-
-    // Trigger async processing if lock is free
     _processNextQueuedFrame();
   }
 
-  /// Pop frame from queue and execute YUV → RGB conversion and Face Detection.
   Future<void> _processNextQueuedFrame() async {
     final item = frameQueue.popForProcessing();
     if (item == null) return;
@@ -107,18 +106,29 @@ class FrameProcessor {
     try {
       final image = item.image;
 
-      // Step 1: YUV420/BGRA to normalized RGB Float32List tensor
-      final Float32List rgbTensor = ImageConverter.convertCameraImageToRgbTensor(
+      final DetectorTensorResult detectorResult = ImageConverter.convertCameraImageToDetectorTensor(
         image,
-        targetWidth: 112,
-        targetHeight: 112,
+        targetSize: 640,
+        sensorOrientation: sensorOrientation,
       );
 
-      // Step 2: Run Face Detection ONLY (No face recognition)
+      final RgbBytesResult rgbResult = ImageConverter.convertCameraImageToRgbBytes(
+        image,
+        sensorOrientation: sensorOrientation,
+      );
+      
+      _latestRgbBytes = rgbResult.rgbBytes;
+      _latestRgbWidth = rgbResult.width;
+      _latestRgbHeight = rgbResult.height;
+
       final FaceDetectionResult detection = await detector.detectFaces(
-        rgbData: rgbTensor,
-        width: image.width,
-        height: image.height,
+        detectorTensor: detectorResult.tensor,
+        tensorSize: 640,
+        scaleRatio: detectorResult.scaleRatio,
+        padX: detectorResult.padX,
+        padY: detectorResult.padY,
+        originalWidth: detectorResult.originalWidth,
+        originalHeight: detectorResult.originalHeight,
       );
 
       _framesProcessed++;
@@ -126,7 +136,6 @@ class FrameProcessor {
       _totalProcessTimeMs += detection.processTimeMs;
       _latestDetectedFaceCount = detection.faces.length;
 
-      // Update detection payload notifier
       detectionNotifier.value = detection;
     } catch (e) {
       debugPrint('⚠️ [FrameProcessor] Processing error: $e');

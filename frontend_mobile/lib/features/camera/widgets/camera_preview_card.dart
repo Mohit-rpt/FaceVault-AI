@@ -14,6 +14,7 @@ class CameraPreviewCard extends StatelessWidget {
   final CameraService? cameraService;
   final FrameProcessorMetrics? metrics;
   final List<LocalRecognitionResult>? recognitionResults;
+  final VoidCallback? onSwitchCamera;
 
   const CameraPreviewCard({
     super.key,
@@ -21,7 +22,17 @@ class CameraPreviewCard extends StatelessWidget {
     this.cameraService,
     this.metrics,
     this.recognitionResults,
+    this.onSwitchCamera,
   });
+
+  double _getPreviewAspectRatio(CameraService cameraService) {
+    final rawAR = cameraService.controller!.value.aspectRatio;
+    final sensorOr = cameraService.sensorOrientation;
+    if (sensorOr == 90 || sensorOr == 270) {
+      return 1.0 / rawAR;
+    }
+    return rawAR;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +74,7 @@ class CameraPreviewCard extends StatelessWidget {
           ),
           // Live Camera Preview Container
           Container(
-            height: 220,
+            height: 320,
             decoration: BoxDecoration(
               color: Colors.black,
               borderRadius: BorderRadius.circular(12),
@@ -90,7 +101,7 @@ class CameraPreviewCard extends StatelessWidget {
                   // Real Hardware Camera Preview or Dark Icon Fallback
                   hasRealController && isConnected
                       ? AspectRatio(
-                          aspectRatio: cameraService!.controller!.value.aspectRatio,
+                          aspectRatio: _getPreviewAspectRatio(cameraService!),
                           child: CameraPreview(cameraService!.controller!),
                         )
                       : Center(
@@ -124,7 +135,7 @@ class CameraPreviewCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black70,
+                          color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
                         ),
@@ -178,6 +189,23 @@ class CameraPreviewCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (hasRealController && isConnected && onSwitchCamera != null)
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: GestureDetector(
+                        onTap: onSwitchCamera,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.5)),
+                          ),
+                          child: const Icon(Icons.cameraswitch, color: AppTheme.neonCyan, size: 20),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

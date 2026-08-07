@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.frontend_mobile"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -43,3 +43,4 @@ kotlin {
 flutter {
     source = "../.."
 }
+

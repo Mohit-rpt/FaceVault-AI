@@ -1,11 +1,8 @@
-// lib/services/camera/mobile_face_detector.dart
-
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 
-/// Single face detection bounding box and score.
 class FaceDetectionBox {
   final List<double> boundingBox; // [left, top, right, bottom] normalized (0.0 to 1.0)
   final double confidence;
@@ -18,7 +15,6 @@ class FaceDetectionBox {
   });
 }
 
-/// Output payload from MobileFaceDetector.
 class FaceDetectionResult {
   final List<FaceDetectionBox> faces;
   final int frameWidth;
@@ -35,25 +31,19 @@ class FaceDetectionResult {
   });
 }
 
-/// Production Mobile Face Detector using InsightFace SCRFD model (`assets/models/det_500m.onnx`).
-///
-/// Responsibilities:
-/// - Detects face bounding boxes and scores from input frames
-/// - Returns normalized bounding boxes [left, top, right, bottom]
-/// - Strictly NO face recognition or embedding generation
 class MobileFaceDetector {
   static final MobileFaceDetector _instance = MobileFaceDetector._internal();
   factory MobileFaceDetector() => _instance;
   MobileFaceDetector._internal();
 
   static const String detectorModelPath = 'assets/models/det_500m.onnx';
+  static bool _debugEnabled = false;
 
   OrtSession? _session;
   bool _isReady = false;
 
   bool get isReady => _isReady && _session != null;
 
-  /// Initialize ONNX session for face detector.
   Future<bool> initialize() async {
     if (_isReady) return true;
 
@@ -69,7 +59,7 @@ class MobileFaceDetector {
         final rawData = await rootBundle.load(detectorModelPath);
         modelBytes = rawData.buffer.asUint8List();
       } catch (_) {
-        debugPrint('⚠️ Detector asset "$detectorModelPath" not found; initializing detector fallback.');
+        debugPrint('⚠️ Detector asset "$detectorModelPath" not found.');
         _isReady = true;
         return true;
       }
@@ -80,20 +70,23 @@ class MobileFaceDetector {
       sessionOptions.release();
 
       _isReady = true;
-      debugPrint('✅ [MobileFaceDetector] Face detector ready');
+      if (_debugEnabled) debugPrint('✅ [MobileFaceDetector] Face detector ready');
       return true;
     } catch (e) {
-      debugPrint('⚠️ [MobileFaceDetector] Detector session fallback mode: $e');
+      debugPrint('⚠️ [MobileFaceDetector] Initialization failed: $e');
       _isReady = true;
       return true;
     }
   }
 
-  /// Run face detection on preprocessed RGB float tensor or image dimensions.
   Future<FaceDetectionResult> detectFaces({
-    required Float32List rgbData,
-    required int width,
-    required int height,
+    required Float32List detectorTensor,
+    required int tensorSize,
+    required double scaleRatio,
+    required int padX,
+    required int padY,
+    required int originalWidth,
+    required int originalHeight,
   }) async {
     final Stopwatch sw = Stopwatch()..start();
     final now = DateTime.now();
@@ -106,9 +99,8 @@ class MobileFaceDetector {
 
     try {
       if (_session != null) {
-        // Run ONNX inference on det_500m.onnx SCRFD session
-        final inputShape = [1, 3, height, width];
-        final inputTensor = OrtValueTensor.createTensorWithDataList(rgbData, inputShape);
+        final inputShape = [1, 3, tensorSize, tensorSize];
+        final inputTensor = OrtValueTensor.createTensorWithDataList(detectorTensor, inputShape);
         final inputName = _session!.inputNames.isNotEmpty ? _session!.inputNames[0] : 'input.1';
 
         final runOptions = OrtRunOptions();
@@ -116,58 +108,134 @@ class MobileFaceDetector {
         runOptions.release();
         inputTensor.release();
 
-        if (outputs.isNotEmpty) {
-          for (final out in outputs) {
-            out?.release();
+        if (outputs.isNotEmpty && outputs.length >= 9) {
+          final strides = [8, 16, 32];
+          final List<_Candidate> candidates = [];
+
+          for (int i = 0; i < strides.length; i++) {
+            final stride = strides[i];
+            final scoreList = outputs[i * 3]!.value as List;
+            final bboxList = outputs[i * 3 + 1]!.value as List;
+            final kpsList = outputs[i * 3 + 2]!.value as List;
+            
+            final gridH = tensorSize ~/ stride;
+            final gridW = tensorSize ~/ stride;
+
+            for (int iy = 0; iy < gridH; iy++) {
+              for (int ix = 0; ix < gridW; ix++) {
+                final anchorCx = ix * stride;
+                final anchorCy = iy * stride;
+
+                for (int a = 0; a < 2; a++) {
+                  final idx = (iy * gridW + ix) * 2 + a;
+
+                  // Output shapes: scores: [1, num_anchors, 1], bbox: [1, num_anchors, 4], kps: [1, num_anchors, 10]
+                  final score = (scoreList[0][idx][0] as num).toDouble();
+                  if (score > 0.5) {
+                    final b0 = (bboxList[0][idx][0] as num).toDouble();
+                    final b1 = (bboxList[0][idx][1] as num).toDouble();
+                    final b2 = (bboxList[0][idx][2] as num).toDouble();
+                    final b3 = (bboxList[0][idx][3] as num).toDouble();
+
+                    final x1 = anchorCx - b0 * stride;
+                    final y1 = anchorCy - b1 * stride;
+                    final x2 = anchorCx + b2 * stride;
+                    final y2 = anchorCy + b3 * stride;
+
+                    final kps = <List<double>>[];
+                    for (int k = 0; k < 5; k++) {
+                      final kx = (kpsList[0][idx][k * 2] as num).toDouble();
+                      final ky = (kpsList[0][idx][k * 2 + 1] as num).toDouble();
+                      kps.add([anchorCx + kx * stride, anchorCy + ky * stride]);
+                    }
+
+                    candidates.add(_Candidate(score, x1, y1, x2, y2, kps));
+                  }
+                }
+              }
+            }
+          }
+
+          // Apply NMS
+          candidates.sort((a, b) => b.score.compareTo(a.score));
+          final kept = <_Candidate>[];
+
+          for (final c in candidates) {
+            bool suppress = false;
+            for (final k in kept) {
+              if (_iou(c, k) > 0.4) {
+                suppress = true;
+                break;
+              }
+            }
+            if (!suppress) {
+              kept.add(c);
+            }
+          }
+
+          for (final c in kept) {
+            // Unscale back to original
+            final origX1 = (c.x1 - padX) / scaleRatio;
+            final origY1 = (c.y1 - padY) / scaleRatio;
+            final origX2 = (c.x2 - padX) / scaleRatio;
+            final origY2 = (c.y2 - padY) / scaleRatio;
+
+            // Normalize [0, 1] relative to original image size
+            final normLeft = (origX1 / originalWidth).clamp(0.0, 1.0);
+            final normTop = (origY1 / originalHeight).clamp(0.0, 1.0);
+            final normRight = (origX2 / originalWidth).clamp(0.0, 1.0);
+            final normBottom = (origY2 / originalHeight).clamp(0.0, 1.0);
+
+            // Landmarks in original pixel coordinates
+            final origKps = c.landmarks.map((kp) {
+              final kpX = (kp[0] - padX) / scaleRatio;
+              final kpY = (kp[1] - padY) / scaleRatio;
+              return [kpX, kpY];
+            }).toList();
+
+            detectedBoxes.add(FaceDetectionBox(
+              boundingBox: [normLeft, normTop, normRight, normBottom],
+              confidence: c.score,
+              landmarks: origKps,
+            ));
           }
         }
-      }
 
-      // Perform fast face region detection heuristic fallback if ONNX output empty
-      final faceBox = _analyzeFaceRegion(rgbData, width, height);
-      if (faceBox != null) {
-        detectedBoxes.add(faceBox);
+        for (final out in outputs) {
+          out?.release();
+        }
       }
     } catch (e) {
-      debugPrint('⚠️ [MobileFaceDetector] Detection warning: $e');
+      if (_debugEnabled) debugPrint('⚠️ [MobileFaceDetector] Detection warning: $e');
     }
 
     sw.stop();
 
     return FaceDetectionResult(
       faces: detectedBoxes,
-      frameWidth: width,
-      frameHeight: height,
+      frameWidth: originalWidth,
+      frameHeight: originalHeight,
       timestamp: now,
       processTimeMs: sw.elapsedMilliseconds,
     );
   }
 
-  /// Fast face region analyzer for calculating bounding boxes from frame luminance.
-  FaceDetectionBox? _analyzeFaceRegion(Float32List rgbData, int width, int height) {
-    if (rgbData.length < width * height * 3) return null;
+  double _iou(_Candidate a, _Candidate b) {
+    final interX1 = math.max(a.x1, b.x1);
+    final interY1 = math.max(a.y1, b.y1);
+    final interX2 = math.min(a.x2, b.x2);
+    final interY2 = math.min(a.y2, b.y2);
 
-    const double cx = 0.5;
-    const double cy = 0.5;
-    const double bw = 0.4;
-    const double bh = 0.55;
+    final interW = math.max(0.0, interX2 - interX1);
+    final interH = math.max(0.0, interY2 - interY1);
+    final interArea = interW * interH;
 
-    final double left = math.max(0.0, cx - (bw / 2));
-    final double top = math.max(0.0, cy - (bh / 2));
-    final double right = math.min(1.0, cx + (bw / 2));
-    final double bottom = math.min(1.0, cy + (bh / 2));
+    if (interArea == 0.0) return 0.0;
 
-    return FaceDetectionBox(
-      boundingBox: [left, top, right, bottom],
-      confidence: 0.95,
-      landmarks: [
-        [left + (bw * 0.3), top + (bh * 0.35)], // Left eye
-        [left + (bw * 0.7), top + (bh * 0.35)], // Right eye
-        [left + (bw * 0.5), top + (bh * 0.55)], // Nose
-        [left + (bw * 0.35), top + (bh * 0.75)], // Left mouth corner
-        [left + (bw * 0.65), top + (bh * 0.75)], // Right mouth corner
-      ],
-    );
+    final areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+    final areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+
+    return interArea / (areaA + areaB - interArea);
   }
 
   Future<void> dispose() async {
@@ -177,4 +245,15 @@ class MobileFaceDetector {
       _isReady = false;
     } catch (_) {}
   }
+}
+
+class _Candidate {
+  final double score;
+  final double x1;
+  final double y1;
+  final double x2;
+  final double y2;
+  final List<List<double>> landmarks;
+
+  _Candidate(this.score, this.x1, this.y1, this.x2, this.y2, this.landmarks);
 }

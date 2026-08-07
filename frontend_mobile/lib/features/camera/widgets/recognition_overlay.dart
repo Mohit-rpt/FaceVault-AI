@@ -11,12 +11,14 @@ class RecognitionOverlay extends StatelessWidget {
   final List<LocalRecognitionResult> recognitionResults;
   final CameraLensDirection lensDirection;
   final int sensorOrientation;
+  final double? cameraAspectRatio;
 
   const RecognitionOverlay({
     super.key,
     required this.recognitionResults,
     required this.lensDirection,
     required this.sensorOrientation,
+    this.cameraAspectRatio,
   });
 
   @override
@@ -32,6 +34,7 @@ class RecognitionOverlay extends StatelessWidget {
             previewSize: previewSize,
             lensDirection: lensDirection,
             sensorOrientation: sensorOrientation,
+            cameraAspectRatio: cameraAspectRatio,
           ),
         );
       },
@@ -44,12 +47,14 @@ class _RecognitionPainter extends CustomPainter {
   final Size previewSize;
   final CameraLensDirection lensDirection;
   final int sensorOrientation;
+  final double? cameraAspectRatio;
 
   _RecognitionPainter({
     required this.results,
     required this.previewSize,
     required this.lensDirection,
     required this.sensorOrientation,
+    this.cameraAspectRatio,
   });
 
   @override
@@ -61,10 +66,18 @@ class _RecognitionPainter extends CustomPainter {
         previewWidgetSize: previewSize,
         lensDirection: lensDirection,
         sensorOrientation: sensorOrientation,
+        cameraAspectRatio: cameraAspectRatio,
       );
 
       final bool isKnown = res.isKnown;
-      final Color strokeColor = isKnown ? AppTheme.neonGreen : AppTheme.neonCyan;
+      final Color strokeColor;
+      if (res.isKnown) {
+        strokeColor = AppTheme.neonGreen;
+      } else if (res.state == 'confirmed' || res.state == 'active') {
+        strokeColor = AppTheme.neonCyan; // Recognizing
+      } else {
+        strokeColor = const Color(0xFFFF6B35); // Warning orange for unknown
+      }
 
       // 2. Draw Glowing Bounding Box
       final boxPaint = Paint()
