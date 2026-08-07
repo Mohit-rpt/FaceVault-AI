@@ -14,6 +14,10 @@ import '../services/settings_service.dart';
 import '../services/local_storage/hive_embedding_store.dart';
 import '../services/sync/sync_repository.dart';
 import '../services/sync/sync_manager.dart';
+import '../services/local_recognition/model_loader.dart';
+import '../services/local_recognition/vector_index_manager.dart';
+import '../services/local_recognition/local_recognition_engine_impl.dart';
+import '../services/local_recognition/local_ai_test_service.dart';
 
 // Core Client & Services Providers
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
@@ -31,6 +35,31 @@ final syncRepositoryProvider = Provider<SyncRepository>((ref) {
 final syncManagerProvider = Provider<SyncManager>((ref) {
   final repo = ref.watch(syncRepositoryProvider);
   return SyncManager(repository: repo);
+});
+
+final modelLoaderProvider = Provider<ModelLoader>((ref) {
+  return ModelLoader();
+});
+
+final vectorIndexManagerProvider = Provider<VectorIndexManager>((ref) {
+  final store = ref.watch(hiveEmbeddingStoreProvider);
+  return VectorIndexManager(localStore: store);
+});
+
+final localRecognitionEngineProvider = Provider<LocalRecognitionEngineImpl>((ref) {
+  final store = ref.watch(hiveEmbeddingStoreProvider);
+  final loader = ref.watch(modelLoaderProvider);
+  final index = ref.watch(vectorIndexManagerProvider);
+  return LocalRecognitionEngineImpl(
+    localStore: store,
+    modelLoader: loader,
+    vectorIndexManager: index,
+  );
+});
+
+final localAiTestServiceProvider = Provider<LocalAiTestService>((ref) {
+  final store = ref.watch(hiveEmbeddingStoreProvider);
+  return LocalAiTestService(localStore: store);
 });
 
 final authServiceProvider = Provider<AuthService>((ref) {
