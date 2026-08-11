@@ -1,5 +1,6 @@
 // lib/services/local_recognition/local_face_embedding_pipeline.dart
 
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import '../camera/mobile_face_detector.dart';
 import 'embedding_generator.dart';
@@ -93,6 +94,13 @@ class LocalFaceEmbeddingPipeline {
         final Float32List? embedding = await embeddingGenerator.generateFromTensor(alignedTensor);
 
         if (embedding != null && embedding.length == 512) {
+          double normSq = 0.0;
+          for (int k = 0; k < 512; k++) {
+            normSq += embedding[k] * embedding[k];
+          }
+          final double l2Norm = math.sqrt(normSq);
+          debugPrint('[EMBEDDING] dimension=512 norm=${l2Norm.toStringAsFixed(4)}');
+
           results.add(LocalFaceEmbeddingResult(
             faceIndex: i,
             boundingBox: face.boundingBox,

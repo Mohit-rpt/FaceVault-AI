@@ -55,7 +55,7 @@ class ModelLoader {
       Uint8List modelBytes;
       try {
         final rawData = await rootBundle.load(modelAssetPath);
-        modelBytes = rawData.buffer.asUint8List();
+        modelBytes = rawData.buffer.asUint8List(rawData.offsetInBytes, rawData.lengthInBytes);
       } catch (_) {
         debugPrint('⚠️ Model asset "$modelAssetPath" not bundled; initializing session placeholder.');
         // Initialize empty session option fallback
@@ -72,6 +72,15 @@ class ModelLoader {
 
       _state = ModelLoaderState.ready;
       debugPrint('✅ [ModelLoader] ONNX model session ready');
+      debugPrint('[AI_MODEL] Recognition model: $modelAssetPath');
+      if (_session != null) {
+        for (int i = 0; i < _session!.inputNames.length; i++) {
+          debugPrint('[AI_MODEL] RECOG INPUT #$i: name=${_session!.inputNames[i]}');
+        }
+        for (int i = 0; i < _session!.outputNames.length; i++) {
+          debugPrint('[AI_MODEL] RECOG OUTPUT #$i: name=${_session!.outputNames[i]}');
+        }
+      }
       return true;
     } catch (e) {
       _state = ModelLoaderState.failed;

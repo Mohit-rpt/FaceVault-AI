@@ -75,6 +75,7 @@ class VectorIndexManager {
   /// Refresh RAM vector matrix from Hive (called after delta sync).
   Future<void> refreshFromHive() async {
     try {
+      await localStore.initialize();
       final Stopwatch sw = Stopwatch()..start();
       final List<LocalEmbedding> allEmbeddings = await localStore.getAllEmbeddings();
 

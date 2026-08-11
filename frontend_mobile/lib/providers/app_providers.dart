@@ -22,8 +22,9 @@ import '../services/local_recognition/local_face_embedding_pipeline.dart';
 import '../services/local_recognition/embedding_parity_validator.dart';
 
 import '../services/camera/camera_service.dart';
-import '../services/camera/mobile_face_detector.dart';
 import '../services/camera/frame_processor.dart';
+import '../services/camera/mobile_face_detector.dart';
+import '../services/camera/ai_worker.dart';
 
 // Core Client & Services Providers
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
@@ -36,9 +37,13 @@ final mobileFaceDetectorProvider = Provider<MobileFaceDetector>((ref) {
   return MobileFaceDetector();
 });
 
+final aiWorkerProvider = Provider<AiWorker>((ref) {
+  return AiWorker();
+});
+
 final frameProcessorProvider = Provider<FrameProcessor>((ref) {
-  final detector = ref.watch(mobileFaceDetectorProvider);
-  return FrameProcessor(detector: detector);
+  final aiWorker = ref.watch(aiWorkerProvider);
+  return FrameProcessor(worker: aiWorker);
 });
 
 final localFaceEmbeddingPipelineProvider = Provider<LocalFaceEmbeddingPipeline>((ref) {

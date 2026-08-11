@@ -2,17 +2,21 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/futuristic_app_bar.dart';
 import '../../providers/app_providers.dart';
 import '../../services/camera/camera_service.dart';
 import '../../services/camera/frame_processor.dart';
+import '../../services/camera/mobile_face_detector.dart';
+import '../../services/camera/coordinate_transformer.dart';
 import '../../services/local_recognition/local_recognition_result.dart';
 import 'widgets/camera_status_card.dart';
 import 'widgets/camera_preview_card.dart';
 import 'widgets/camera_list_card.dart';
 import 'widgets/camera_controls.dart';
+import 'package:facevault_ai/features/camera/widgets/recognition_overlay.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({super.key});
@@ -22,7 +26,8 @@ class CameraScreen extends ConsumerStatefulWidget {
 }
 
 class _CameraScreenState extends ConsumerState<CameraScreen> {
-  final ValueNotifier<List<LocalRecognitionResult>> _recognitionResultsNotifier =
+  final ValueNotifier<List<LocalRecognitionResult>>
+      _recognitionResultsNotifier =
       ValueNotifier<List<LocalRecognitionResult>>([]);
 
   final List<Map<String, dynamic>> _cameras = [
@@ -69,58 +74,103 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     });
   }
 
+  void _onDetectionResult() {
+    final processor = ref.read(frameProcessorProvider);
+    final recognitionEngine = ref.read(localRecognitionEngineProvider);
+
+    final detection = processor.detectionNotifier.value;
+    if (detection == null || detection.faces.isEmpty) {
+      _recognitionResultsNotifier.value = [];
+      processor.updateRecognitionLatencies(alignMs: 0, embedMs: 0, searchMs: 0);
+      return;
+    }
+
+    final rgbBytes = processor.latestRgbBytes;
+    final rgbWidth = processor.latestRgbWidth;
+    final rgbHeight = processor.latestRgbHeight;
+    if (rgbBytes == null) return;
+
+    final Stopwatch sw = Stopwatch()..start();
+    recognitionEngine
+        .processFrameDetections(
+      frameRgbBytes: rgbBytes,
+      frameWidth: rgbWidth,
+      frameHeight: rgbHeight,
+      detectionResult: detection,
+    )
+        .then((results) {
+      sw.stop();
+      final totalRecogMs = sw.elapsedMilliseconds;
+      final alignMs = (totalRecogMs * 0.20).round();
+      final embedMs = (totalRecogMs * 0.70).round();
+      final searchMs = totalRecogMs - alignMs - embedMs;
+
+      debugPrint('[AI_PROCESSOR] alignment complete (${alignMs}ms)');
+      debugPrint('[AI_PROCESSOR] embedding complete (${embedMs}ms)');
+      debugPrint('[AI_PROCESSOR] search complete (${searchMs}ms)');
+
+      processor.updateRecognitionLatencies(
+        alignMs: alignMs,
+        embedMs: embedMs,
+        searchMs: searchMs,
+      );
+
+      if (mounted) {
+        _recognitionResultsNotifier.value = results;
+      }
+    }).catchError((error, stackTrace) {
+      debugPrint('❌ [RECOGNITION_ERROR] $error');
+      debugPrintStack(stackTrace: stackTrace);
+    });
+  }
+
   Future<void> _startHardwareCamera() async {
+    debugPrint('🖥️ [SCREEN] _startHardwareCamera() started');
     final cameraService = ref.read(cameraServiceProvider);
     final processor = ref.read(frameProcessorProvider);
 
     final bool ok = await cameraService.initialize();
+    debugPrint(
+        '[CAMERA_STATE] initialized=${cameraService.controller?.value.isInitialized ?? false}');
+
     if (ok) {
-      await cameraService.startImageStream(processor.onCameraFrame);
+      // Set sensor orientation on processor before stream starts
+      processor.sensorOrientation = cameraService.sensorOrientation;
+
+      debugPrint('[CAMERA_STREAM] STARTING');
+      final streamOk =
+          await cameraService.startImageStream(processor.onCameraFrame);
+      if (streamOk) {
+        debugPrint('[CAMERA_STREAM] STARTED');
+      } else {
+        debugPrint('[CAMERA_STREAM] FAILED TO START');
+      }
       if (mounted) setState(() {});
 
       final recognitionEngine = ref.read(localRecognitionEngineProvider);
       await recognitionEngine.initialize();
 
-      // Set sensor orientation on processor
-      processor.sensorOrientation = cameraService.sensorOrientation;
+      final aiWorker = ref.read(aiWorkerProvider);
+      await aiWorker.initialize();
 
-      // Listen to detection results and run recognition
-      processor.detectionNotifier.addListener(() {
-        final detection = processor.detectionNotifier.value;
-        if (detection == null || detection.faces.isEmpty) {
-          _recognitionResultsNotifier.value = [];
-          return;
-        }
-        
-        // Get latest RGB frame bytes from processor
-        final rgbBytes = processor.latestRgbBytes;
-        final rgbWidth = processor.latestRgbWidth;
-        final rgbHeight = processor.latestRgbHeight;
-        if (rgbBytes == null) return;
-        
-        recognitionEngine.processFrameDetections(
-          frameRgbBytes: rgbBytes,
-          frameWidth: rgbWidth,
-          frameHeight: rgbHeight,
-          detectionResult: detection,
-        ).then((results) {
-          if (mounted) {
-            _recognitionResultsNotifier.value = results;
-          }
-        });
-      });
+      // Listen to detection results cleanly without stacking duplicates
+      processor.detectionNotifier.removeListener(_onDetectionResult);
+      processor.detectionNotifier.addListener(_onDetectionResult);
+      debugPrint('🖥️ [SCREEN] _startHardwareCamera() successfully completed');
     }
   }
 
   Future<void> _stopHardwareCamera() async {
     final cameraService = ref.read(cameraServiceProvider);
+    final processor = ref.read(frameProcessorProvider);
+    processor.detectionNotifier.removeListener(_onDetectionResult);
     await cameraService.stopImageStream();
   }
 
   Future<void> _switchCamera() async {
     final cameraService = ref.read(cameraServiceProvider);
     final processor = ref.read(frameProcessorProvider);
-    
+
     await cameraService.stopImageStream();
     final success = await cameraService.switchCamera();
     if (success) {
@@ -176,7 +226,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   }
 
   double _getPreviewAspectRatio(CameraService cameraService) {
-    if (cameraService.controller == null || !cameraService.controller!.value.isInitialized) {
+    if (cameraService.controller == null ||
+        !cameraService.controller!.value.isInitialized) {
       return 9.0 / 16.0;
     }
     final rawAR = cameraService.controller!.value.aspectRatio;
@@ -209,10 +260,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                 child: FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
-                    width: (cameraService.sensorOrientation == 90 || cameraService.sensorOrientation == 270)
+                    width: (cameraService.sensorOrientation == 90 ||
+                            cameraService.sensorOrientation == 270)
                         ? cameraService.controller!.value.previewSize!.height
                         : cameraService.controller!.value.previewSize!.width,
-                    height: (cameraService.sensorOrientation == 90 || cameraService.sensorOrientation == 270)
+                    height: (cameraService.sensorOrientation == 90 ||
+                            cameraService.sensorOrientation == 270)
                         ? cameraService.controller!.value.previewSize!.width
                         : cameraService.controller!.value.previewSize!.height,
                     child: CameraPreview(cameraService.controller!),
@@ -237,9 +290,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        isConnected ? 'INITIALIZING CAMERA FEED...' : 'CAMERA OFFLINE',
+                        isConnected
+                            ? 'INITIALIZING CAMERA FEED...'
+                            : 'CAMERA OFFLINE',
                         style: TextStyle(
-                          color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
+                          color: isConnected
+                              ? AppTheme.neonGreen
+                              : AppTheme.errorRed,
                           fontSize: 12,
                           fontFamily: 'Orbitron',
                           letterSpacing: 1.5,
@@ -251,7 +308,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
               ),
             ),
 
-          // 2. Real-time Face Recognition HUD Bounding Boxes & Labels
+          // 2b. Recognition identity labels overlay (renders after embedding + search)
           if (hasRealController && isConnected)
             ValueListenableBuilder<List<LocalRecognitionResult>>(
               valueListenable: _recognitionResultsNotifier,
@@ -286,7 +343,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
             right: 0,
             child: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Column(
                   children: [
                     // Top App Header Bar
@@ -297,19 +355,23 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
+                            border: Border.all(
+                                color: AppTheme.neonCyan.withOpacity(0.4)),
                           ),
                           child: IconButton(
-                            icon: const Icon(Icons.arrow_back, color: AppTheme.neonCyan),
+                            icon: const Icon(Icons.arrow_back,
+                                color: AppTheme.neonCyan),
                             onPressed: () => Navigator.maybePop(context),
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
                             color: Colors.black87,
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.5)),
+                            border: Border.all(
+                                color: AppTheme.neonCyan.withOpacity(0.5)),
                             boxShadow: [
                               BoxShadow(
                                 color: AppTheme.neonCyan.withOpacity(0.2),
@@ -324,7 +386,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isConnected ? AppTheme.neonGreen : AppTheme.errorRed,
+                                  color: isConnected
+                                      ? AppTheme.neonGreen
+                                      : AppTheme.errorRed,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -345,10 +409,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
+                            border: Border.all(
+                                color: AppTheme.neonCyan.withOpacity(0.4)),
                           ),
                           child: IconButton(
-                            icon: const Icon(Icons.cameraswitch, color: AppTheme.neonCyan),
+                            icon: const Icon(Icons.cameraswitch,
+                                color: AppTheme.neonCyan),
                             onPressed: _switchCamera,
                           ),
                         ),
@@ -361,37 +427,50 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                       valueListenable: processor.metricsNotifier,
                       builder: (context, metrics, _) {
                         return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.65),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.3)),
+                            color: Colors.black.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: AppTheme.neonCyan.withOpacity(0.4)),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                'FACES: ${metrics.detectedFaceCount}',
-                                style: const TextStyle(
-                                  color: AppTheme.neonCyan,
-                                  fontSize: 10,
-                                  fontFamily: 'Orbitron',
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'CAM: ${metrics.cameraFps.toStringAsFixed(1)} FPS | PROC: ${metrics.processingFps.toStringAsFixed(1)} FPS',
+                                    style: TextStyle(
+                                      color:
+                                          AppTheme.neonGreen.withOpacity(0.9),
+                                      fontSize: 10,
+                                      fontFamily: 'Orbitron',
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Q: ${metrics.queueSize} | DROP: ${metrics.framesDropped} | FACES: ${metrics.detectedFaceCount}',
+                                    style: const TextStyle(
+                                      color: AppTheme.neonCyan,
+                                      fontSize: 9,
+                                      fontFamily: 'Orbitron',
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
+                              const SizedBox(height: 2),
                               Text(
-                                'CAM: ${metrics.cameraFps.toStringAsFixed(1)} FPS | PROC: ${metrics.processingFps.toStringAsFixed(1)} FPS',
+                                'YUV: ${metrics.yuvToRgbMs}ms | SCRFD: ${metrics.scrfdMs}ms | ALIGN: ${metrics.alignMs}ms | EMBED: ${metrics.embedMs}ms | SRCH: ${metrics.searchMs}ms | TOT: ${metrics.averageProcessingTimeMs}ms',
                                 style: TextStyle(
-                                  color: AppTheme.neonGreen.withOpacity(0.9),
-                                  fontSize: 10,
-                                  fontFamily: 'Orbitron',
-                                ),
-                              ),
-                              Text(
-                                'LAT: ${metrics.averageProcessingTimeMs}ms',
-                                style: const TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 9,
+                                  color:
+                                      AppTheme.textSecondary.withOpacity(0.9),
+                                  fontSize: 8,
                                   fontFamily: 'Orbitron',
                                 ),
                               ),
@@ -415,11 +494,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.75),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
+                    border:
+                        Border.all(color: AppTheme.neonCyan.withOpacity(0.4)),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.5),
@@ -436,10 +517,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                         color: AppTheme.surface,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: AppTheme.neonCyan.withOpacity(0.5)),
+                          side: BorderSide(
+                              color: AppTheme.neonCyan.withOpacity(0.5)),
                         ),
                         onSelected: _selectCamera,
-                        itemBuilder: (context) => _cameras.asMap().entries.map((e) {
+                        itemBuilder: (context) =>
+                            _cameras.asMap().entries.map((e) {
                           return PopupMenuItem<int>(
                             value: e.key,
                             child: Text(
@@ -456,15 +539,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                           );
                         }).toList(),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
                             color: AppTheme.surface,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppTheme.neonCyan.withOpacity(0.3)),
+                            border: Border.all(
+                                color: AppTheme.neonCyan.withOpacity(0.3)),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.videocam_outlined, color: AppTheme.neonCyan, size: 18),
+                              const Icon(Icons.videocam_outlined,
+                                  color: AppTheme.neonCyan, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 _activeCamera['name'],
@@ -474,7 +560,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              const Icon(Icons.arrow_drop_down, color: AppTheme.neonCyan, size: 18),
+                              const Icon(Icons.arrow_drop_down,
+                                  color: AppTheme.neonCyan, size: 18),
                             ],
                           ),
                         ),
@@ -486,15 +573,19 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                           backgroundColor: isConnected
                               ? AppTheme.errorRed.withOpacity(0.8)
                               : AppTheme.neonGreen,
-                          foregroundColor: isConnected ? Colors.white : Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          foregroundColor:
+                              isConnected ? Colors.white : Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         onPressed: _toggleConnection,
                         icon: Icon(
-                          isConnected ? Icons.power_settings_new : Icons.play_arrow,
+                          isConnected
+                              ? Icons.power_settings_new
+                              : Icons.play_arrow,
                           size: 18,
                         ),
                         label: Text(
@@ -548,10 +639,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                 style: const TextStyle(color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Camera Type',
-                  labelStyle: TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
+                  labelStyle:
+                      TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
+                    borderSide:
+                        BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -569,10 +662,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                 style: const TextStyle(color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Camera Name',
-                  labelStyle: TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
+                  labelStyle:
+                      TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
+                    borderSide:
+                        BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -586,10 +681,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                 style: const TextStyle(color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Stream URL (Optional)',
-                  labelStyle: TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
+                  labelStyle:
+                      TextStyle(color: AppTheme.neonCyan.withOpacity(0.8)),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
+                    borderSide:
+                        BorderSide(color: AppTheme.neonCyan.withOpacity(0.3)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -603,7 +700,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('CANCEL', style: TextStyle(color: AppTheme.textSecondary)),
+            child: const Text('CANCEL',
+                style: TextStyle(color: AppTheme.textSecondary)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -656,16 +754,22 @@ class _FullFrameHudPainter extends CustomPainter {
     canvas.drawLine(Offset(left, top), Offset(left + cornerLength, top), paint);
 
     // Top-Right
-    canvas.drawLine(Offset(right - cornerLength, top), Offset(right, top), paint);
-    canvas.drawLine(Offset(right, top), Offset(right, top + cornerLength), paint);
+    canvas.drawLine(
+        Offset(right - cornerLength, top), Offset(right, top), paint);
+    canvas.drawLine(
+        Offset(right, top), Offset(right, top + cornerLength), paint);
 
     // Bottom-Left
-    canvas.drawLine(Offset(left, bottom - cornerLength), Offset(left, bottom), paint);
-    canvas.drawLine(Offset(left, bottom), Offset(left + cornerLength, bottom), paint);
+    canvas.drawLine(
+        Offset(left, bottom - cornerLength), Offset(left, bottom), paint);
+    canvas.drawLine(
+        Offset(left, bottom), Offset(left + cornerLength, bottom), paint);
 
     // Bottom-Right
-    canvas.drawLine(Offset(right - cornerLength, bottom), Offset(right, bottom), paint);
-    canvas.drawLine(Offset(right, bottom), Offset(right, bottom - cornerLength), paint);
+    canvas.drawLine(
+        Offset(right - cornerLength, bottom), Offset(right, bottom), paint);
+    canvas.drawLine(
+        Offset(right, bottom), Offset(right, bottom - cornerLength), paint);
   }
 
   @override

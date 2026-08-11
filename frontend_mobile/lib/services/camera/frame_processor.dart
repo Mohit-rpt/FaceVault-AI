@@ -1,9 +1,7 @@
-import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'frame_queue.dart';
-import 'image_converter.dart';
 import 'mobile_face_detector.dart';
+import 'ai_worker.dart';
 
 class FrameProcessorMetrics {
   final double cameraFps;
@@ -14,6 +12,11 @@ class FrameProcessorMetrics {
   final int averageProcessingTimeMs;
   final int queueSize;
   final int detectedFaceCount;
+  final int yuvToRgbMs;
+  final int scrfdMs;
+  final int alignMs;
+  final int embedMs;
+  final int searchMs;
 
   FrameProcessorMetrics({
     required this.cameraFps,
@@ -24,44 +27,69 @@ class FrameProcessorMetrics {
     required this.averageProcessingTimeMs,
     required this.queueSize,
     required this.detectedFaceCount,
+    this.yuvToRgbMs = 0,
+    this.scrfdMs = 0,
+    this.alignMs = 0,
+    this.embedMs = 0,
+    this.searchMs = 0,
   });
 
   @override
   String toString() {
-    return 'Camera: ${cameraFps.toStringAsFixed(1)} FPS | Proc: ${processingFps.toStringAsFixed(1)} FPS | Rec: $framesReceived | Proc: $framesProcessed | Drop: $framesDropped | Avg: ${averageProcessingTimeMs}ms | Faces: $detectedFaceCount';
+    return 'CAM: ${cameraFps.toStringAsFixed(1)} FPS | PROC: ${processingFps.toStringAsFixed(1)} FPS | Q: $queueSize | DROP: $framesDropped | FACES: $detectedFaceCount';
   }
 }
 
+/// Frame processor using single-slot latest-frame strategy.
+///
+/// Architecture:
+/// - Camera delivers ~30 FPS frames
+/// - If AI is busy, frame is dropped (latest-frame strategy)
+/// - If AI is free, YUV conversion happens synchronously (CameraImage is valid),
+///   then SCRFD runs asynchronously
+/// - Camera preview is NEVER blocked by AI processing
 class FrameProcessor {
-  final MobileFaceDetector detector;
-  final FrameQueue frameQueue;
+  final AiWorker worker;
 
-  int targetProcessingIntervalMs;
   int sensorOrientation = 90;
-  
-  DateTime _lastProcessedTime = DateTime.fromMillisecondsSinceEpoch(0);
 
+  // Counters
   int _framesReceived = 0;
   int _framesProcessed = 0;
-  int _totalProcessTimeMs = 0;
+  int _framesDropped = 0;
   int _latestDetectedFaceCount = 0;
+  int _latestCallbackMs = 0;
 
+  // Stage latencies
+  int _latestYuvToRgbMs = 0;
+  int _latestScrfdMs = 0;
+  int _latestAlignMs = 0;
+  int _latestEmbedMs = 0;
+  int _latestSearchMs = 0;
+
+  // FPS tracking
   DateTime _fpsStartTime = DateTime.now();
   int _cameraFrameCountWindow = 0;
   int _procFrameCountWindow = 0;
   double _calculatedCameraFps = 0.0;
   double _calculatedProcFps = 0.0;
-  
+
+  // Latest RGB bytes for recognition pipeline
   Uint8List? _latestRgbBytes;
   int _latestRgbWidth = 0;
   int _latestRgbHeight = 0;
+
+  // Throttled logging
+  DateTime _lastLogTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   Uint8List? get latestRgbBytes => _latestRgbBytes;
   int get latestRgbWidth => _latestRgbWidth;
   int get latestRgbHeight => _latestRgbHeight;
 
-  final ValueNotifier<FaceDetectionResult?> detectionNotifier = ValueNotifier<FaceDetectionResult?>(null);
-  final ValueNotifier<FrameProcessorMetrics> metricsNotifier = ValueNotifier<FrameProcessorMetrics>(
+  final ValueNotifier<FaceDetectionResult?> detectionNotifier =
+      ValueNotifier<FaceDetectionResult?>(null);
+  final ValueNotifier<FrameProcessorMetrics> metricsNotifier =
+      ValueNotifier<FrameProcessorMetrics>(
     FrameProcessorMetrics(
       cameraFps: 0.0,
       processingFps: 0.0,
@@ -75,74 +103,75 @@ class FrameProcessor {
   );
 
   FrameProcessor({
-    MobileFaceDetector? detector,
-    FrameQueue? frameQueue,
-    this.targetProcessingIntervalMs = 66,
-  })  : detector = detector ?? MobileFaceDetector(),
-        frameQueue = frameQueue ?? FrameQueue(maxCapacity: 2);
+    required this.worker,
+  });
 
+  void updateRecognitionLatencies({
+    required int alignMs,
+    required int embedMs,
+    required int searchMs,
+  }) {
+    _latestAlignMs = alignMs;
+    _latestEmbedMs = embedMs;
+    _latestSearchMs = searchMs;
+    _emitMetrics();
+  }
+
+  /// Camera image stream callback.
+  ///
+  /// MUST be ultra-lightweight:
+  /// 1. Count frame for FPS
+  /// 2. If AI is busy: drop frame, return immediately
+  /// 3. If AI is free: convert YUV synchronously (CameraImage valid in callback),
+  ///    then kick off async SCRFD
   void onCameraFrame(CameraImage image) {
+    final sw = Stopwatch()..start();
     _framesReceived++;
     _cameraFrameCountWindow++;
     _updateFpsCounters();
 
-    final now = DateTime.now();
-    final elapsedSinceLast = now.difference(_lastProcessedTime).inMilliseconds;
+    // Check if worker has a new result
+    if (worker.latestResult != null && worker.latestResult != detectionNotifier.value) {
+      _framesProcessed++;
+      _procFrameCountWindow++;
+      
+      _latestYuvToRgbMs = worker.latestYuvMs;
+      _latestScrfdMs = worker.latestScrfdMs;
+      _latestRgbBytes = worker.latestRgbBytes; 
+      _latestRgbWidth = worker.latestRgbWidth;
+      _latestRgbHeight = worker.latestRgbHeight;
 
-    if (elapsedSinceLast < targetProcessingIntervalMs) {
+      detectionNotifier.value = worker.latestResult;
+      _latestDetectedFaceCount = worker.latestResult!.faces.length;
+    }
+
+    if (worker.isBusy) {
+      _framesDropped++;
+      sw.stop();
+      _latestCallbackMs = sw.elapsedMilliseconds;
+      _emitMetrics();
       return;
     }
 
-    frameQueue.enqueue(image);
-    _processNextQueuedFrame();
-  }
-
-  Future<void> _processNextQueuedFrame() async {
-    final item = frameQueue.popForProcessing();
-    if (item == null) return;
-
-    _lastProcessedTime = DateTime.now();
-
-    try {
-      final image = item.image;
-
-      final DetectorTensorResult detectorResult = ImageConverter.convertCameraImageToDetectorTensor(
-        image,
-        targetSize: 640,
+    // Extract YUV bytes without copying (as much as possible) 
+    // and send to worker.
+    if (image.format.group == ImageFormatGroup.yuv420 && image.planes.length >= 3) {
+      worker.processFrame(
+        yBytes: image.planes[0].bytes,
+        uBytes: image.planes[1].bytes,
+        vBytes: image.planes[2].bytes,
+        yRowStride: image.planes[0].bytesPerRow,
+        uvRowStride: image.planes[1].bytesPerRow,
+        uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
+        width: image.width,
+        height: image.height,
         sensorOrientation: sensorOrientation,
       );
-
-      final RgbBytesResult rgbResult = ImageConverter.convertCameraImageToRgbBytes(
-        image,
-        sensorOrientation: sensorOrientation,
-      );
-      
-      _latestRgbBytes = rgbResult.rgbBytes;
-      _latestRgbWidth = rgbResult.width;
-      _latestRgbHeight = rgbResult.height;
-
-      final FaceDetectionResult detection = await detector.detectFaces(
-        detectorTensor: detectorResult.tensor,
-        tensorSize: 640,
-        scaleRatio: detectorResult.scaleRatio,
-        padX: detectorResult.padX,
-        padY: detectorResult.padY,
-        originalWidth: detectorResult.originalWidth,
-        originalHeight: detectorResult.originalHeight,
-      );
-
-      _framesProcessed++;
-      _procFrameCountWindow++;
-      _totalProcessTimeMs += detection.processTimeMs;
-      _latestDetectedFaceCount = detection.faces.length;
-
-      detectionNotifier.value = detection;
-    } catch (e) {
-      debugPrint('⚠️ [FrameProcessor] Processing error: $e');
-    } finally {
-      frameQueue.releaseProcessingLock();
-      _emitMetrics();
     }
+    
+    sw.stop();
+    _latestCallbackMs = sw.elapsedMilliseconds;
+    _emitMetrics();
   }
 
   void _updateFpsCounters() {
@@ -151,7 +180,6 @@ class FrameProcessor {
     if (elapsedMs >= 1000) {
       _calculatedCameraFps = (_cameraFrameCountWindow * 1000.0) / elapsedMs;
       _calculatedProcFps = (_procFrameCountWindow * 1000.0) / elapsedMs;
-
       _cameraFrameCountWindow = 0;
       _procFrameCountWindow = 0;
       _fpsStartTime = now;
@@ -159,29 +187,46 @@ class FrameProcessor {
   }
 
   void _emitMetrics() {
-    final avgTime = _framesProcessed > 0 ? (_totalProcessTimeMs ~/ _framesProcessed) : 0;
+    final totalMs = _latestYuvToRgbMs + _latestScrfdMs + _latestAlignMs + _latestEmbedMs + _latestSearchMs;
+
+    // Throttled telemetry log (~1 per second)
+    final now = DateTime.now();
+    if (now.difference(_lastLogTime).inMilliseconds >= 1000) {
+      _lastLogTime = now;
+      final bool busy = worker.isBusy;
+      debugPrint('[AI_PERF] CAM_FPS=${_calculatedCameraFps.toStringAsFixed(1)} PROC_FPS=${_calculatedProcFps.toStringAsFixed(1)} FACES=$_latestDetectedFaceCount CAMERA_CALLBACK_MS=$_latestCallbackMs WORKER_QUEUE=${busy ? 1 : 0} WORKER_BUSY=$busy YUV_MS=${_latestYuvToRgbMs} SCRFD_MS=${_latestScrfdMs} POSTPROCESS_MS=0 RESULT_TRANSFER_MS=0 DROP=$_framesDropped');
+    }
+
     metricsNotifier.value = FrameProcessorMetrics(
       cameraFps: _calculatedCameraFps,
       processingFps: _calculatedProcFps,
       framesReceived: _framesReceived,
       framesProcessed: _framesProcessed,
-      framesDropped: frameQueue.droppedCount,
-      averageProcessingTimeMs: avgTime,
-      queueSize: frameQueue.currentSize,
+      framesDropped: _framesDropped,
+      averageProcessingTimeMs: totalMs,
+      queueSize: worker.isBusy ? 1 : 0,
       detectedFaceCount: _latestDetectedFaceCount,
+      yuvToRgbMs: _latestYuvToRgbMs,
+      scrfdMs: _latestScrfdMs,
+      alignMs: _latestAlignMs,
+      embedMs: _latestEmbedMs,
+      searchMs: _latestSearchMs,
     );
   }
 
   void resetStats() {
     _framesReceived = 0;
     _framesProcessed = 0;
-    _totalProcessTimeMs = 0;
+    _framesDropped = 0;
     _latestDetectedFaceCount = 0;
-    frameQueue.resetStats();
+    _latestYuvToRgbMs = 0;
+    _latestScrfdMs = 0;
+    _latestAlignMs = 0;
+    _latestEmbedMs = 0;
+    _latestSearchMs = 0;
   }
 
   void dispose() {
-    frameQueue.clear();
     detectionNotifier.dispose();
     metricsNotifier.dispose();
   }

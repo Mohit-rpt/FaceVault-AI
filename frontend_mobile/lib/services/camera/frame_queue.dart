@@ -1,9 +1,10 @@
 // lib/services/camera/frame_queue.dart
+// NOTE: FrameProcessor no longer uses FrameQueue directly.
+// Kept for backward compatibility with any other references.
 
 import 'dart:collection';
 import 'package:camera/camera.dart';
 
-/// Single item stored in FrameQueue with arrival metadata.
 class FrameQueueItem {
   final CameraImage image;
   final DateTime arrivalTime;
@@ -16,9 +17,6 @@ class FrameQueueItem {
   });
 }
 
-/// Bounded Frame Queue prioritizing the newest frames and dropping stale frames.
-///
-/// Prevents memory leaks and latency lag when processing is slower than camera feed.
 class FrameQueue {
   final int maxCapacity;
   final Queue<FrameQueueItem> _queue = Queue<FrameQueueItem>();
@@ -28,7 +26,7 @@ class FrameQueue {
   int _processedCount = 0;
   bool _isProcessingLock = false;
 
-  FrameQueue({this.maxCapacity = 2});
+  FrameQueue({this.maxCapacity = 1});
 
   int get currentSize => _queue.length;
   int get enqueuedCount => _enqueuedCount;
@@ -36,8 +34,6 @@ class FrameQueue {
   int get processedCount => _processedCount;
   bool get isProcessingLock => _isProcessingLock;
 
-  /// Add new frame to queue.
-  /// If queue exceeds maxCapacity, drop the oldest frame to prefer the newest.
   bool enqueue(CameraImage image) {
     _enqueuedCount++;
     final item = FrameQueueItem(
@@ -46,38 +42,39 @@ class FrameQueue {
       frameId: _enqueuedCount,
     );
 
-    if (_queue.length >= maxCapacity) {
+    // Drop all older frames, keep only the newest
+    while (_queue.length >= maxCapacity) {
       _queue.removeFirst();
       _droppedCount++;
     }
-
     _queue.add(item);
     return true;
   }
 
-  /// Pop newest frame for background processing with lock.
+  /// Pop NEWEST frame for processing.
   FrameQueueItem? popForProcessing() {
-    if (_isProcessingLock || _queue.isEmpty) {
-      return null;
-    }
-
+    if (_isProcessingLock || _queue.isEmpty) return null;
     _isProcessingLock = true;
     _processedCount++;
-    return _queue.removeFirst();
+
+    // Take the newest frame, discard older ones
+    final newest = _queue.removeLast();
+    while (_queue.isNotEmpty) {
+      _queue.removeFirst();
+      _droppedCount++;
+    }
+    return newest;
   }
 
-  /// Release lock after processing completes.
   void releaseProcessingLock() {
     _isProcessingLock = false;
   }
 
-  /// Clear all queued frames.
   void clear() {
     _queue.clear();
     _isProcessingLock = false;
   }
 
-  /// Reset statistics counter.
   void resetStats() {
     _enqueuedCount = 0;
     _droppedCount = 0;

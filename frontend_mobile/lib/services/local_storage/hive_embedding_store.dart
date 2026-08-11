@@ -13,6 +13,10 @@ import 'local_embedding_store.dart';
 /// - `facevault_images`: Stores face image metadata
 /// - `facevault_sync_meta`: Stores local sync version, last sync time, and offline logs queue
 class HiveEmbeddingStore implements LocalEmbeddingStore {
+  static final HiveEmbeddingStore _instance = HiveEmbeddingStore._internal();
+  factory HiveEmbeddingStore() => _instance;
+  HiveEmbeddingStore._internal();
+
   static const String boxPersons = 'facevault_persons';
   static const String boxEmbeddings = 'facevault_embeddings';
   static const String boxImages = 'facevault_images';

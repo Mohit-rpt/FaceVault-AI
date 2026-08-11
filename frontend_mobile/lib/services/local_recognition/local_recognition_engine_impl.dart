@@ -64,46 +64,19 @@ class LocalRecognitionEngineImpl {
 
     final rawResults = <LocalRecognitionResult>[];
 
-    // 1. Generate 512D embeddings for all detected faces in frame
-    final faceEmbeddings = await embeddingPipeline.processDetections(
-      frameRgbBytes: frameRgbBytes,
-      frameWidth: frameWidth,
-      frameHeight: frameHeight,
-      detectionResult: detectionResult,
-    );
-
-    // 2. Perform Cosine Similarity Search against RAM Vector Index
-    for (final face in faceEmbeddings) {
-      final searchResult = vectorIndexManager.search(
-        face.embedding,
-        topK: 1,
-      );
-
-      bool isKnown = false;
-      String? personId;
-      String displayName = 'Unknown';
-      double bestSimilarity = 0.0;
-
-      if (searchResult.isNotEmpty) {
-        final match = searchResult.first;
-        bestSimilarity = match.similarity;
-
-        // Apply strict similarity threshold check
-        if (bestSimilarity >= similarityThreshold) {
-          isKnown = true;
-          personId = match.personId.toString();
-          displayName = match.personName;
-        }
-      }
-
+    // TEMPORARY DETECTION-ONLY MODE FOR DEBUGGING
+    // Disable embedding and vector search to prevent performance collapse
+    // while we debug the 135-faces SCRFD issue.
+    for (int i = 0; i < detectionResult.faces.length; i++) {
+      final face = detectionResult.faces[i];
       rawResults.add(LocalRecognitionResult(
-        trackId: face.faceIndex,
-        personId: personId,
-        displayName: displayName,
-        similarity: bestSimilarity,
-        isKnown: isKnown,
+        trackId: i,
+        personId: null,
+        displayName: 'DEBUG',
+        similarity: face.confidence, // Borrow similarity field to show raw SCRFD confidence
+        isKnown: false,
         boundingBox: face.boundingBox,
-        timestamp: face.timestamp,
+        timestamp: detectionResult.timestamp,
         state: 'raw',
       ));
     }

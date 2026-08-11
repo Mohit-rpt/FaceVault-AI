@@ -56,7 +56,7 @@ class CameraService {
     camera_pkg.CameraLensDirection preferredLens = camera_pkg.CameraLensDirection.front,
     camera_pkg.ResolutionPreset resolution = camera_pkg.ResolutionPreset.high,
   }) async {
-    if (_state == CameraServiceState.ready || _state == CameraServiceState.streaming) {
+    if (_controller != null && _controller!.value.isInitialized) {
       return true;
     }
     if (_state == CameraServiceState.initializing) return false;
@@ -128,18 +128,26 @@ class CameraService {
 
   /// Start receiving frame stream from camera hardware.
   Future<bool> startImageStream(void Function(camera_pkg.CameraImage image) onFrame) async {
+    debugPrint('🎥 [CAMERA] startImageStream() called');
     if (_controller == null || !_controller!.value.isInitialized) {
+      debugPrint('❌ [CAMERA] Cannot start stream: Controller not initialized');
       _updateState(CameraServiceState.error, 'Cannot start stream: Controller not initialized');
       return false;
     }
 
-    if (isStreaming) return true;
-
     try {
+      if (_controller!.value.isStreamingImages) {
+        debugPrint('🎥 [CAMERA] Stream already active on controller, stopping previous stream...');
+        await _controller!.stopImageStream();
+      }
+
+      debugPrint('🎥 [CAMERA] Attaching image stream callback to CameraController...');
       await _controller!.startImageStream(onFrame);
       _updateState(CameraServiceState.streaming);
+      debugPrint('✅ [CAMERA] Hardware image stream successfully started!');
       return true;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('❌ [CAMERA] Failed to start image stream: $e\n$stack');
       _updateState(CameraServiceState.error, 'Failed to start image stream: $e');
       return false;
     }

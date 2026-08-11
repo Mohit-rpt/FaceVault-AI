@@ -86,7 +86,7 @@ class _RecognitionPainter extends CustomPainter {
         ..strokeWidth = 2.0;
 
       final glowPaint = Paint()
-        ..color = strokeColor.withOpacity(0.3)
+        ..color = strokeColor.withValues(alpha: 0.3)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6.0
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
