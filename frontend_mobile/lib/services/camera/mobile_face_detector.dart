@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 
 class FaceDetectionBox {
-  final List<double> boundingBox; // [left, top, right, bottom] normalized 0.0-1.0
+  final List<double>
+      boundingBox; // [left, top, right, bottom] normalized 0.0-1.0
   final double confidence;
   final List<List<double>>? landmarks; // 5-point facial landmarks
 
@@ -57,7 +58,7 @@ class MobileFaceDetector {
     if (_isReady && _session != null) return true;
 
     try {
-      // Note: OrtEnv.instance.init() must be called BEFORE this, 
+      // Note: OrtEnv.instance.init() must be called BEFORE this,
       // either here or in the caller Isolate.
       if (!PlatformDispatcher.instance.views.isEmpty) {
         OrtEnv.instance.init(); // Init safely if on UI isolate
@@ -75,7 +76,8 @@ class MobileFaceDetector {
           rawData.offsetInBytes,
           rawData.lengthInBytes,
         );
-        debugPrint('[SCRFD_INIT] Model loaded: ${modelBytes.length} bytes (offset=${rawData.offsetInBytes}, length=${rawData.lengthInBytes})');
+        debugPrint(
+            '[SCRFD_INIT] Model loaded: ${modelBytes.length} bytes (offset=${rawData.offsetInBytes}, length=${rawData.lengthInBytes})');
       } catch (e) {
         debugPrint('⚠️ [SCRFD_INIT] Asset "$detectorModelPath" not found: $e');
         return false;
@@ -159,15 +161,42 @@ class MobileFaceDetector {
     // 8 = kps32
 
     final strictMapping = [
-      _OutputMapping(stride: 8, head: 'score', outputName: names.length > 0 ? names[0] : '443'),
-      _OutputMapping(stride: 16, head: 'score', outputName: names.length > 1 ? names[1] : '468'),
-      _OutputMapping(stride: 32, head: 'score', outputName: names.length > 2 ? names[2] : '493'),
-      _OutputMapping(stride: 8, head: 'bbox', outputName: names.length > 3 ? names[3] : '446'),
-      _OutputMapping(stride: 16, head: 'bbox', outputName: names.length > 4 ? names[4] : '471'),
-      _OutputMapping(stride: 32, head: 'bbox', outputName: names.length > 5 ? names[5] : '496'),
-      _OutputMapping(stride: 8, head: 'kps', outputName: names.length > 6 ? names[6] : '449'),
-      _OutputMapping(stride: 16, head: 'kps', outputName: names.length > 7 ? names[7] : '474'),
-      _OutputMapping(stride: 32, head: 'kps', outputName: names.length > 8 ? names[8] : '499'),
+      _OutputMapping(
+          stride: 8,
+          head: 'score',
+          outputName: names.length > 0 ? names[0] : '443'),
+      _OutputMapping(
+          stride: 16,
+          head: 'score',
+          outputName: names.length > 1 ? names[1] : '468'),
+      _OutputMapping(
+          stride: 32,
+          head: 'score',
+          outputName: names.length > 2 ? names[2] : '493'),
+      _OutputMapping(
+          stride: 8,
+          head: 'bbox',
+          outputName: names.length > 3 ? names[3] : '446'),
+      _OutputMapping(
+          stride: 16,
+          head: 'bbox',
+          outputName: names.length > 4 ? names[4] : '471'),
+      _OutputMapping(
+          stride: 32,
+          head: 'bbox',
+          outputName: names.length > 5 ? names[5] : '496'),
+      _OutputMapping(
+          stride: 8,
+          head: 'kps',
+          outputName: names.length > 6 ? names[6] : '449'),
+      _OutputMapping(
+          stride: 16,
+          head: 'kps',
+          outputName: names.length > 7 ? names[7] : '474'),
+      _OutputMapping(
+          stride: 32,
+          head: 'kps',
+          outputName: names.length > 8 ? names[8] : '499'),
     ];
 
     for (int i = 0; i < strictMapping.length; i++) {
@@ -176,11 +205,10 @@ class MobileFaceDetector {
 
     debugPrint('[SCRFD_MAPPING] Hardcoded true ONNX graph mapping:');
     _outputMappings?.forEach((i, m) {
-      debugPrint('[SCRFD_MAPPING] #$i "${m.outputName}" -> stride${m.stride} ${m.head.toUpperCase()}');
+      debugPrint(
+          '[SCRFD_MAPPING] #$i "${m.outputName}" -> stride${m.stride} ${m.head.toUpperCase()}');
     });
   }
-
-
 
   Future<FaceDetectionResult> detectFaces({
     required Float32List detectorTensor,
@@ -199,34 +227,52 @@ class MobileFaceDetector {
     }
 
     final detectedBoxes = <FaceDetectionBox>[];
-    final bool shouldLog = now.difference(_lastDiagTime).inMilliseconds >= _diagIntervalMs;
+    final bool shouldLog =
+        now.difference(_lastDiagTime).inMilliseconds >= _diagIntervalMs;
     if (shouldLog) _lastDiagTime = now;
 
     try {
       if (_session != null) {
         if (shouldLog) {
-        debugPrint('[SCRFD_INPUT_SCHEMA] modelInput=[1,3,640,640] tensorLength=${detectorTensor.length} cameraWidth=$originalWidth cameraHeight=$originalHeight padX=$padX padY=$padY scale=$scaleRatio');
-      }
+          debugPrint(
+              '[SCRFD_INPUT_SCHEMA] modelInput=[1,3,640,640] tensorLength=${detectorTensor.length} cameraWidth=$originalWidth cameraHeight=$originalHeight padX=$padX padY=$padY scale=$scaleRatio');
+        }
 
-      if (detectorTensor.length != 1228800) {
-        debugPrint('❌ [SCRFD_FATAL] Detector tensor length must be exactly 1228800 (640x640x3). Got ${detectorTensor.length}. Aborting inference.');
-        return FaceDetectionResult(
-          faces: [],
-          frameWidth: originalWidth,
-          frameHeight: originalHeight,
-          timestamp: DateTime.now(),
-          processTimeMs: sw.elapsedMilliseconds,
-        );
-      }
+        if (detectorTensor.length != 1228800) {
+          debugPrint(
+              '❌ [SCRFD_FATAL] Detector tensor length must be exactly 1228800 (640x640x3). Got ${detectorTensor.length}. Aborting inference.');
+          return FaceDetectionResult(
+            faces: [],
+            frameWidth: originalWidth,
+            frameHeight: originalHeight,
+            timestamp: DateTime.now(),
+            processTimeMs: sw.elapsedMilliseconds,
+          );
+        }
 
-      final inputShape = [1, 3, tensorSize, tensorSize];
-        final inputTensor = OrtValueTensor.createTensorWithDataList(detectorTensor, inputShape);
-        final inputName = _session!.inputNames.isNotEmpty ? _session!.inputNames[0] : 'input.1';
+        final inputShape = [1, 3, tensorSize, tensorSize];
+
+        final allocSw = Stopwatch()..start();
+        final inputTensor =
+            OrtValueTensor.createTensorWithDataList(detectorTensor, inputShape);
+        allocSw.stop();
+        final allocMs = allocSw.elapsedMilliseconds;
+
+        final inputName = _session!.inputNames.isNotEmpty
+            ? _session!.inputNames[0]
+            : 'input.1';
 
         final runOptions = OrtRunOptions();
+        final infSw = Stopwatch()..start();
         final outputs = _session!.run(runOptions, {inputName: inputTensor});
+        infSw.stop();
+        final infMs = infSw.elapsedMilliseconds;
         runOptions.release();
         inputTensor.release();
+
+        int outputMs = 0;
+        int decodeMs = 0;
+        int nmsMs = 0;
 
         if (outputs.isNotEmpty && outputs.length >= 9) {
           if (_outputMappings == null || _outputMappings!.isEmpty) {
@@ -234,23 +280,29 @@ class MobileFaceDetector {
           }
 
           final Map<int, Map<String, List<double>>> strideOutputs = {
-            8: {}, 16: {}, 32: {},
+            8: {},
+            16: {},
+            32: {},
           };
 
+          final outSw = Stopwatch()..start();
           for (int i = 0; i < outputs.length && i < 9; i++) {
             final out = outputs[i];
             if (out == null || out.value == null) continue;
-            
+
             final flatData = _flattenToList(out.value);
             final mapping = _outputMappings?[i];
-            
+
             if (mapping != null) {
               if (shouldLog) {
-                debugPrint('[SCRFD_OUTPUT_SCHEMA] index=$i name=${mapping.outputName} mappedTo=stride${mapping.stride}_${mapping.head} flattenedLength=${flatData.length}');
+                debugPrint(
+                    '[SCRFD_OUTPUT_SCHEMA] index=$i name=${mapping.outputName} mappedTo=stride${mapping.stride}_${mapping.head} flattenedLength=${flatData.length}');
               }
               strideOutputs[mapping.stride]![mapping.head] = flatData;
             }
           }
+          outSw.stop();
+          outputMs = outSw.elapsedMilliseconds;
 
           double maxProbability = 0.0;
           int totalCandidates = 0;
@@ -260,13 +312,15 @@ class MobileFaceDetector {
           bool printedAnchorSchema = false;
           bool printedBBoxDebug = false;
 
+          final decodeSw = Stopwatch()..start();
           for (final stride in strides) {
             final maps = strideOutputs[stride]!;
             final scoreFlat = maps['score'];
             final bboxFlat = maps['bbox'];
             final kpsFlat = maps['kps'];
             if (scoreFlat == null || bboxFlat == null || kpsFlat == null) {
-              if (shouldLog) debugPrint('[SCRFD] WARNING: stride $stride missing data');
+              if (shouldLog)
+                debugPrint('[SCRFD] WARNING: stride $stride missing data');
               continue;
             }
 
@@ -274,7 +328,8 @@ class MobileFaceDetector {
             final gridW = tensorSize ~/ stride;
 
             if (!printedAnchorSchema) {
-              debugPrint('[SCRFD_ANCHOR_SCHEMA] stride=$stride featureMap=${gridW}x$gridH anchorsPerLocation=2 totalAnchors=${gridW*gridH*2} firstCenter=[0,0] lastCenter=[${(gridW-1)*stride},${(gridH-1)*stride}]');
+              debugPrint(
+                  '[SCRFD_ANCHOR_SCHEMA] stride=$stride featureMap=${gridW}x$gridH anchorsPerLocation=2 totalAnchors=${gridW * gridH * 2} firstCenter=[0,0] lastCenter=[${(gridW - 1) * stride},${(gridH - 1) * stride}]');
             }
 
             // Optional: check score bounds once
@@ -287,7 +342,8 @@ class MobileFaceDetector {
                 if (s > maxScore) maxScore = s;
                 sumScore += s;
               }
-              debugPrint('[SCRFD_SCORE_SCHEMA] stride=$stride min=$minScore max=$maxScore mean=${sumScore / scoreFlat.length}');
+              debugPrint(
+                  '[SCRFD_SCORE_SCHEMA] stride=$stride min=$minScore max=$maxScore mean=${sumScore / scoreFlat.length}');
             }
 
             for (int iy = 0; iy < gridH; iy++) {
@@ -297,20 +353,21 @@ class MobileFaceDetector {
                 for (int a = 0; a < 2; a++) {
                   final idx = (iy * gridW + ix) * 2 + a;
                   final rawScore = scoreFlat[idx];
-                  
-                  // The det_500m.onnx already has Sigmoid outputs. 
+
+                  // The det_500m.onnx already has Sigmoid outputs.
                   // DO NOT apply another sigmoid.
                   final double prob = rawScore;
 
                   if (prob < 0.0 || prob > 1.0) {
-                     debugPrint('❌ [SCRFD_FATAL_INVALID_SCORE] rawScore/prob is $prob. Output tensor is likely misaligned! Expected 0.0 to 1.0.');
-                     return FaceDetectionResult(
-                        faces: [],
-                        frameWidth: originalWidth,
-                        frameHeight: originalHeight,
-                        timestamp: DateTime.now(),
-                        processTimeMs: sw.elapsedMilliseconds,
-                      );
+                    debugPrint(
+                        '❌ [SCRFD_FATAL_INVALID_SCORE] rawScore/prob is $prob. Output tensor is likely misaligned! Expected 0.0 to 1.0.');
+                    return FaceDetectionResult(
+                      faces: [],
+                      frameWidth: originalWidth,
+                      frameHeight: originalHeight,
+                      timestamp: DateTime.now(),
+                      processTimeMs: sw.elapsedMilliseconds,
+                    );
                   }
 
                   if (prob > maxProbability) maxProbability = prob;
@@ -329,13 +386,21 @@ class MobileFaceDetector {
                     final y2 = anchorCy + b3 * stride;
 
                     if (!printedBBoxDebug && thresholdedCount <= 5) {
-                      debugPrint('[SCRFD_BBOX_DEBUG] stride=$stride anchorIndex=$idx anchorCx=$anchorCx anchorCy=$anchorCy rawBBox=[$b0,$b1,$b2,$b3] decoded=[$x1,$y1,$x2,$y2]');
+                      debugPrint(
+                          '[SCRFD_BBOX_DEBUG] stride=$stride anchorIndex=$idx anchorCx=$anchorCx anchorCy=$anchorCy rawBBox=[$b0,$b1,$b2,$b3] decoded=[$x1,$y1,$x2,$y2]');
                     }
 
                     // Reject invalid boxes
-                    if (x2 <= x1 || y2 <= y1 ||
-                        x1.isNaN || y1.isNaN || x2.isNaN || y2.isNaN ||
-                        x1.isInfinite || y1.isInfinite || x2.isInfinite || y2.isInfinite) {
+                    if (x2 <= x1 ||
+                        y2 <= y1 ||
+                        x1.isNaN ||
+                        y1.isNaN ||
+                        x2.isNaN ||
+                        y2.isNaN ||
+                        x1.isInfinite ||
+                        y1.isInfinite ||
+                        x2.isInfinite ||
+                        y2.isInfinite) {
                       continue;
                     }
 
@@ -344,7 +409,8 @@ class MobileFaceDetector {
                       for (int k = 0; k < 5; k++) {
                         final kx = kpsFlat[idx * 10 + k * 2];
                         final ky = kpsFlat[idx * 10 + k * 2 + 1];
-                        kps.add([anchorCx + kx * stride, anchorCy + ky * stride]);
+                        kps.add(
+                            [anchorCx + kx * stride, anchorCy + ky * stride]);
                       }
                     }
                     candidates.add(_Candidate(prob, x1, y1, x2, y2, kps));
@@ -352,39 +418,52 @@ class MobileFaceDetector {
                 }
               }
             }
-            if (!printedAnchorSchema && stride == 32) printedAnchorSchema = true;
-            if (!printedBBoxDebug && thresholdedCount >= 5) printedBBoxDebug = true;
+            if (!printedAnchorSchema && stride == 32)
+              printedAnchorSchema = true;
+            if (!printedBBoxDebug && thresholdedCount >= 5)
+              printedBBoxDebug = true;
           }
+
+          decodeSw.stop();
+          decodeMs = decodeSw.elapsedMilliseconds;
 
           final candidatesBeforeNMS = candidates.length;
 
           // NMS
+          final nmsSw = Stopwatch()..start();
           candidates.sort((a, b) => b.score.compareTo(a.score));
           final kept = <_Candidate>[];
           for (final c in candidates) {
             bool suppress = false;
             for (final k in kept) {
-              if (_iou(c, k) > _nmsThreshold) { suppress = true; break; }
+              if (_iou(c, k) > _nmsThreshold) {
+                suppress = true;
+                break;
+              }
             }
             if (!suppress) {
               kept.add(c);
             }
           }
+          nmsSw.stop();
+          nmsMs = nmsSw.elapsedMilliseconds;
           final candidatesAfterNMS = kept.length;
 
           if (shouldLog) {
-            debugPrint('[SCRFD_NMS] before=$candidatesBeforeNMS after=$candidatesAfterNMS threshold=$_confidenceThreshold maxIoU=0.4');
+            debugPrint(
+                '[SCRFD_NMS] before=$candidatesBeforeNMS after=$candidatesAfterNMS threshold=$_confidenceThreshold maxIoU=0.4');
           }
 
           if (candidatesAfterNMS > 50) {
-            debugPrint('[SCRFD_ANOMALY] rawCandidates=$candidatesAfterNMS reason=unexpected_detection_explosion');
+            debugPrint(
+                '[SCRFD_ANOMALY] rawCandidates=$candidatesAfterNMS reason=unexpected_detection_explosion');
             return FaceDetectionResult(
-               faces: [],
-               frameWidth: originalWidth,
-               frameHeight: originalHeight,
-               timestamp: DateTime.now(),
-               processTimeMs: sw.elapsedMilliseconds,
-             );
+              faces: [],
+              frameWidth: originalWidth,
+              frameHeight: originalHeight,
+              timestamp: DateTime.now(),
+              processTimeMs: sw.elapsedMilliseconds,
+            );
           }
 
           // Convert to normalized coordinates
@@ -399,7 +478,8 @@ class MobileFaceDetector {
             final normRight = (origX2 / originalWidth).clamp(0.0, 1.0);
             final normBottom = (origY2 / originalHeight).clamp(0.0, 1.0);
 
-            if (normRight - normLeft < 0.01 || normBottom - normTop < 0.01) continue;
+            if (normRight - normLeft < 0.01 || normBottom - normTop < 0.01)
+              continue;
 
             final normKps = c.landmarks.map((kp) {
               final kpX = ((kp[0] - padX) / scaleRatio) / originalWidth;
@@ -415,16 +495,20 @@ class MobileFaceDetector {
 
             // Log one valid candidate for bbox validation
             if (shouldLog && detectedBoxes.length == 1) {
-              debugPrint('[SCRFD_BBOX] stride=${c.x1 < 160 ? "?" : "?"} score=${c.score.toStringAsFixed(3)} raw=[${c.x1.toStringAsFixed(1)},${c.y1.toStringAsFixed(1)},${c.x2.toStringAsFixed(1)},${c.y2.toStringAsFixed(1)}] norm=[${normLeft.toStringAsFixed(3)},${normTop.toStringAsFixed(3)},${normRight.toStringAsFixed(3)},${normBottom.toStringAsFixed(3)}]');
+              debugPrint(
+                  '[SCRFD_BBOX] stride=${c.x1 < 160 ? "?" : "?"} score=${c.score.toStringAsFixed(3)} raw=[${c.x1.toStringAsFixed(1)},${c.y1.toStringAsFixed(1)},${c.x2.toStringAsFixed(1)},${c.y2.toStringAsFixed(1)}] norm=[${normLeft.toStringAsFixed(3)},${normTop.toStringAsFixed(3)},${normRight.toStringAsFixed(3)},${normBottom.toStringAsFixed(3)}]');
             }
           }
 
           // Throttled diagnostic
           if (shouldLog) {
-            debugPrint('[SCRFD] probMax=${maxProbability.toStringAsFixed(4)} candidates=$totalCandidates thresh=$thresholdedCount nms=${kept.length} faces=${detectedBoxes.length}');
+            final totalMs = sw.elapsedMilliseconds;
+            debugPrint(
+                '[SCRFD_PERF] TENSOR_ALLOC=${allocMs}ms INFERENCE=${infMs}ms OUTPUT=${outputMs}ms DECODE=${decodeMs}ms NMS=${nmsMs}ms TOTAL=${totalMs}ms FACES=${detectedBoxes.length}');
           }
         } else if (shouldLog) {
-          debugPrint('[SCRFD] WARNING: expected >=9 outputs, got ${outputs.length}');
+          debugPrint(
+              '[SCRFD] WARNING: expected >=9 outputs, got ${outputs.length}');
         }
 
         for (final out in outputs) {
@@ -453,9 +537,12 @@ class MobileFaceDetector {
         if (item is num) {
           result.add(item.toDouble());
         } else if (item is List) {
-          for (final sub in item) { extract(sub); }
+          for (final sub in item) {
+            extract(sub);
+          }
         }
       }
+
       extract(rawVal);
       return result;
     }
@@ -489,7 +576,8 @@ class _OutputMapping {
   final int stride;
   final String head;
   final String outputName;
-  _OutputMapping({required this.stride, required this.head, required this.outputName});
+  _OutputMapping(
+      {required this.stride, required this.head, required this.outputName});
 }
 
 class _Candidate {
