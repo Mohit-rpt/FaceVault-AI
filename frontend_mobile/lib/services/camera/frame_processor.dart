@@ -131,13 +131,14 @@ class FrameProcessor {
     _updateFpsCounters();
 
     // Check if worker has a new result
-    if (worker.latestResult != null && worker.latestResult != detectionNotifier.value) {
+    if (worker.latestResult != null &&
+        worker.latestResult != detectionNotifier.value) {
       _framesProcessed++;
       _procFrameCountWindow++;
-      
+
       _latestYuvToRgbMs = worker.latestYuvMs;
       _latestScrfdMs = worker.latestScrfdMs;
-      _latestRgbBytes = worker.latestRgbBytes; 
+      _latestRgbBytes = worker.latestRgbBytes;
       _latestRgbWidth = worker.latestRgbWidth;
       _latestRgbHeight = worker.latestRgbHeight;
 
@@ -153,9 +154,10 @@ class FrameProcessor {
       return;
     }
 
-    // Extract YUV bytes without copying (as much as possible) 
+    // Extract YUV bytes without copying (as much as possible)
     // and send to worker.
-    if (image.format.group == ImageFormatGroup.yuv420 && image.planes.length >= 3) {
+    if (image.format.group == ImageFormatGroup.yuv420 &&
+        image.planes.length >= 3) {
       worker.processFrame(
         yBytes: image.planes[0].bytes,
         uBytes: image.planes[1].bytes,
@@ -168,7 +170,7 @@ class FrameProcessor {
         sensorOrientation: sensorOrientation,
       );
     }
-    
+
     sw.stop();
     _latestCallbackMs = sw.elapsedMilliseconds;
     _emitMetrics();
@@ -187,14 +189,19 @@ class FrameProcessor {
   }
 
   void _emitMetrics() {
-    final totalMs = _latestYuvToRgbMs + _latestScrfdMs + _latestAlignMs + _latestEmbedMs + _latestSearchMs;
+    final totalMs = _latestYuvToRgbMs +
+        _latestScrfdMs +
+        _latestAlignMs +
+        _latestEmbedMs +
+        _latestSearchMs;
 
     // Throttled telemetry log (~1 per second)
     final now = DateTime.now();
     if (now.difference(_lastLogTime).inMilliseconds >= 1000) {
       _lastLogTime = now;
       final bool busy = worker.isBusy;
-      debugPrint('[AI_PERF] CAM_FPS=${_calculatedCameraFps.toStringAsFixed(1)} PROC_FPS=${_calculatedProcFps.toStringAsFixed(1)} FACES=$_latestDetectedFaceCount CAMERA_CALLBACK_MS=$_latestCallbackMs WORKER_QUEUE=${busy ? 1 : 0} WORKER_BUSY=$busy YUV_MS=${_latestYuvToRgbMs} SCRFD_MS=${_latestScrfdMs} POSTPROCESS_MS=0 RESULT_TRANSFER_MS=0 DROP=$_framesDropped');
+      debugPrint(
+          '[AI_PERF_V2] CAM_FPS=${_calculatedCameraFps.toStringAsFixed(1)} PROC_FPS=${_calculatedProcFps.toStringAsFixed(1)} FACES=$_latestDetectedFaceCount CAMERA_CALLBACK_MS=$_latestCallbackMs WORKER_QUEUE=${busy ? 1 : 0} WORKER_BUSY=$busy YUV_MS=${_latestYuvToRgbMs} SCRFD_MS=${_latestScrfdMs} POSTPROCESS_MS=0 RESULT_TRANSFER_MS=0 DROP=$_framesDropped');
     }
 
     metricsNotifier.value = FrameProcessorMetrics(

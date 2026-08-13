@@ -288,9 +288,16 @@ class MobileFaceDetector {
           final outSw = Stopwatch()..start();
           for (int i = 0; i < outputs.length && i < 9; i++) {
             final out = outputs[i];
-            if (out == null || out.value == null) continue;
+            if (out == null) continue;
 
-            final flatData = _flattenToList(out.value);
+            List<double> flatData;
+            if (out is OrtValueTensor) {
+              flatData = out.flatFloat32List;
+            } else {
+              if (out.value == null) continue;
+              flatData = _flattenToList(out.value);
+            }
+
             final mapping = _outputMappings?[i];
 
             if (mapping != null) {
@@ -504,7 +511,7 @@ class MobileFaceDetector {
           if (shouldLog) {
             final totalMs = sw.elapsedMilliseconds;
             debugPrint(
-                '[SCRFD_PERF] TENSOR_ALLOC=${allocMs}ms INFERENCE=${infMs}ms OUTPUT=${outputMs}ms DECODE=${decodeMs}ms NMS=${nmsMs}ms TOTAL=${totalMs}ms FACES=${detectedBoxes.length}');
+                '[SCRFD_PERF_V2] TENSOR_ALLOC=${allocMs}ms INFERENCE=${infMs}ms OUTPUT=${outputMs}ms DECODE=${decodeMs}ms NMS=${nmsMs}ms TOTAL=${totalMs}ms FACES=${detectedBoxes.length}');
           }
         } else if (shouldLog) {
           debugPrint(
