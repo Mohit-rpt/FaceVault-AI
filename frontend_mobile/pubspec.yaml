@@ -34,3 +34,7 @@ flutter:
   assets:
     - assets/mock/
     - assets/models/
+
+dependency_overrides:
+  onnxruntime:
+    path: packages/onnxruntime
