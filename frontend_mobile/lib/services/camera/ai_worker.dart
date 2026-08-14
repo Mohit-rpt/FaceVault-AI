@@ -5,6 +5,10 @@ import 'package:onnxruntime/onnxruntime.dart';
 
 import 'image_converter.dart';
 import 'mobile_face_detector.dart';
+import 'experimental_scrfd_detector.dart';
+
+// EXPERIMENTAL 320 SCRFD — PERFORMANCE TEST ONLY
+const bool kUseExperimentalScrfd = true;
 
 
 /// Request sent from the UI isolate to the Background isolate.
@@ -78,7 +82,10 @@ class AiWorker {
 
     try {
       // 1. Load model bytes on the UI isolate via rootBundle
-      final rawData = await rootBundle.load('assets/models/det_500m.onnx');
+      final modelPath = kUseExperimentalScrfd
+          ? 'assets/models/det_500m_320.onnx' // EXPERIMENTAL 320 SCRFD — PERFORMANCE TEST ONLY
+          : 'assets/models/det_500m.onnx';
+      final rawData = await rootBundle.load(modelPath);
       final modelBytes = rawData.buffer.asUint8List(
         rawData.offsetInBytes,
         rawData.lengthInBytes,
@@ -191,7 +198,10 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
   OrtEnv.instance.init();
   
   // 2. Initialize the Face Detector
-  final detector = MobileFaceDetector();
+  // EXPERIMENTAL 320 SCRFD — PERFORMANCE TEST ONLY
+  dynamic detector = kUseExperimentalScrfd 
+      ? ExperimentalSCRFDDetector() 
+      : MobileFaceDetector();
   await detector.initializeFromBytes(initData.modelBytes);
   debugPrint('✅ [AI_WORKER] SCRFD_INITIALIZATION_COUNT = 1');
 
@@ -208,6 +218,7 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
       final req = message[1] as AIWorkerFrameRequest;
 
       final sw = Stopwatch()..start();
+      final workerStartMs = DateTime.now().millisecondsSinceEpoch;
 
       try {
         // Materialize the typed data
@@ -215,7 +226,10 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
         final uBuffer = req.uBuffer.materialize().asUint8List();
         final vBuffer = req.vBuffer.materialize().asUint8List();
 
-        // 1. Convert YUV to 640x640 Tensor
+        // 1. Convert YUV to Tensor
+        // EXPERIMENTAL 320 SCRFD — PERFORMANCE TEST ONLY
+        final int targetSize = kUseExperimentalScrfd ? 320 : 640;
+        
         final tensorResult = ImageConverter.convertRawYuvToDetectorTensor(
           yBuffer: yBuffer,
           uBuffer: uBuffer,
@@ -226,15 +240,16 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
           origW: req.width,
           origH: req.height,
           sensorOrientation: req.sensorOrientation,
-          targetSize: 640,
+          targetSize: targetSize,
         );
 
         final yuvTime = tensorResult.conversionTimeMs;
 
         // 2. Run SCRFD Inference
+        final detectorStartMs = DateTime.now().millisecondsSinceEpoch;
         final detection = await detector.detectFaces(
           detectorTensor: tensorResult.tensor,
-          tensorSize: 640,
+          tensorSize: targetSize,
           scaleRatio: tensorResult.scaleRatio,
           padX: tensorResult.padX,
           padY: tensorResult.padY,
@@ -242,9 +257,16 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
           originalHeight: tensorResult.originalHeight,
         );
 
+        final detectorEndMs = DateTime.now().millisecondsSinceEpoch;
         sw.stop();
 
         // 3. Return results
+        final workerEndMs = DateTime.now().millisecondsSinceEpoch;
+        
+        // [DIAGNOSTIC] Provide timing boundaries
+        if (kUseExperimentalScrfd) {
+          debugPrint('[AI_WORKER_DIAG] workerStart=$workerStartMs yuvTime=$yuvTime detectorStart=$detectorStartMs detectorEnd=$detectorEndMs workerEnd=$workerEndMs internalScrfdMs=${detection.processTimeMs} swElapsed=${sw.elapsedMilliseconds}');
+        }
         replyPort.send(AIWorkerResult(
           detection: detection,
           totalPipelineMs: sw.elapsedMilliseconds,
