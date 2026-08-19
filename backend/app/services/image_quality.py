@@ -27,7 +27,7 @@ class QualityMetrics(BaseModel):
 
 class QualityThresholds(BaseModel):
     """Configurable quality thresholds."""
-    min_blur: float = 100.0
+    min_blur: float = 10.0  # Temporarily lowered from 100.0 for mobile debugging
     min_brightness: float = 30.0
     max_brightness: float = 220.0
     min_contrast: float = 20.0

@@ -112,7 +112,9 @@ class FaceDetector:
                     )
                 )
             except Exception as e:
-                logger.warning(f"Skipping detected face due to error: {e}")
+                import traceback
+                logger.warning(f"[BACKEND_DEBUG] Skipping detected face due to error: {e}")
+                traceback.print_exc()
                 continue
 
         if not results:
