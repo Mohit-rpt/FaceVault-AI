@@ -11,9 +11,14 @@ class ExperimentalSCRFDDetector {
   factory ExperimentalSCRFDDetector() => _instance;
   ExperimentalSCRFDDetector._internal();
 
+  // Reusable lists to prevent per-frame allocations
+  final List<_Candidate> _reusableCandidates = [];
+  final List<_Candidate> _reusableKept = [];
+
   static const String detectorModelPath = 'assets/models/det_500m_320.onnx';
 
   OrtSession? _session;
+  OrtRunOptions? _runOptions;
   bool _isReady = false;
 
   final double _confidenceThreshold = 0.45;
@@ -25,6 +30,44 @@ class ExperimentalSCRFDDetector {
   // Throttled logging
   DateTime _lastDiagTime = DateTime.fromMillisecondsSinceEpoch(0);
   static const int _diagIntervalMs = 1000;
+
+  // Phase 3 SCRFD Stage Profiling
+  static DateTime _lastStageDiagTime = DateTime.fromMillisecondsSinceEpoch(0);
+  static int _stageFrames = 0;
+  static int _stageSumInput = 0;
+  static int _stageSumInf = 0;
+  static int _stageSumOut = 0;
+  static int _stageSumDec = 0;
+  static int _stageSumNms = 0;
+  static int _stageSumTotal = 0;
+  static int _stageMaxInput = 0;
+  static int _stageMaxInf = 0;
+  static int _stageMaxTotal = 0;
+  static int _stageWorstFrame = -1;
+
+  // Phase 7 Spike Root-Cause Profiling
+  static const int _benchmarkWarmupFrames = 30; // Ignore first 30 frames
+  static int _benchmarkFrameCount = 0;
+  static int _diagFrames = 0;
+
+  static int _sumWorkerToDetect = 0;
+  static int _sumDetectToRun = 0;
+  static int _sumOnnxInference = 0;
+  static int _sumRunToPostprocess = 0;
+  static int _sumScrfdTotal = 0;
+
+  static int _maxWorkerToDetect = 0;
+  static int _maxDetectToRun = 0;
+  static int _maxOnnxInference = 0;
+  static int _maxRunToPostprocess = 0;
+  static int _maxScrfdTotal = 0;
+
+  static int _spikesOnnx80 = 0;
+  static int _spikesOnnx100 = 0;
+  static int _spikesTotal100 = 0;
+
+  static final List<int> _inferenceHistory = [];
+  static DateTime _lastSummaryTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get isReady => _isReady && _session != null;
 
@@ -45,7 +88,7 @@ class ExperimentalSCRFDDetector {
           GraphOptimizationLevel.ortEnableAll);
 
       debugPrint(
-          '[SCRFD_SMALL_INIT] model=det_500m_320.onnx input=320x320 provider=CPU threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL');
+          '[SCRFD_SMALL_INIT] SCRFD_CONFIG=A_INTRA1 model=det_500m_320.onnx input=320x320 provider=CPU threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL');
 
       Uint8List modelBytes;
       try {
@@ -73,6 +116,7 @@ class ExperimentalSCRFDDetector {
         return false;
       }
 
+      _runOptions = OrtRunOptions();
       _isReady = true;
 
       // One-time initialization log
@@ -108,7 +152,7 @@ class ExperimentalSCRFDDetector {
           GraphOptimizationLevel.ortEnableAll);
 
       debugPrint(
-          '[SCRFD_SMALL_INIT] model=det_500m_320.onnx input=320x320 provider=CPU threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL');
+          '[SCRFD_SMALL_INIT] SCRFD_CONFIG=A_INTRA1 model=det_500m_320.onnx input=320x320 provider=CPU threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL');
 
       if (modelBytes.isNotEmpty) {
         _session = OrtSession.fromBuffer(modelBytes, sessionOptions);
@@ -120,6 +164,7 @@ class ExperimentalSCRFDDetector {
         return false;
       }
 
+      _runOptions = OrtRunOptions();
       _isReady = true;
       _buildOutputMappingFromNames();
       return true;
@@ -205,11 +250,13 @@ class ExperimentalSCRFDDetector {
     required int padY,
     required int originalWidth,
     required int originalHeight,
+    int frameId = -1,
+    int workerDelayMicro = 0,
   }) async {
     final Stopwatch sw = Stopwatch()..start();
     final now = DateTime.now();
 
-    if (!_isReady || _session == null) {
+    if (!_isReady || _session == null || _runOptions == null) {
       await initialize();
     }
 
@@ -249,17 +296,20 @@ class ExperimentalSCRFDDetector {
             ? _session!.inputNames[0]
             : 'input.1';
 
-        final runOptions = OrtRunOptions();
+        final int runStartMicro = sw.elapsedMicroseconds;
+
         final infSw = Stopwatch()..start();
-        final outputs = _session!.run(runOptions, {inputName: inputTensor});
+        final outputs = _session!.run(_runOptions!, {inputName: inputTensor});
         infSw.stop();
         final infMs = infSw.elapsedMilliseconds;
-        runOptions.release();
+        final infMicro = infSw.elapsedMicroseconds;
+
         inputTensor.release();
 
         int outputMs = 0;
         int decodeMs = 0;
         int nmsMs = 0;
+        int releaseMs = 0;
 
         if (outputs.isNotEmpty && outputs.length >= 9) {
           if (_outputMappings == null || _outputMappings!.isEmpty) {
@@ -301,7 +351,9 @@ class ExperimentalSCRFDDetector {
           double maxProbability = 0.0;
           int totalCandidates = 0;
           int thresholdedCount = 0;
-          final List<_Candidate> candidates = [];
+          
+          _reusableCandidates.clear();
+          
           final strides = [8, 16, 32];
           bool printedAnchorSchema = false;
           bool printedBBoxDebug = false;
@@ -407,7 +459,7 @@ class ExperimentalSCRFDDetector {
                             [anchorCx + kx * stride, anchorCy + ky * stride]);
                       }
                     }
-                    candidates.add(_Candidate(prob, x1, y1, x2, y2, kps));
+                    _reusableCandidates.add(_Candidate(prob, x1, y1, x2, y2, kps));
                   }
                 }
               }
@@ -421,31 +473,81 @@ class ExperimentalSCRFDDetector {
           decodeSw.stop();
           decodeMs = decodeSw.elapsedMilliseconds;
 
-          final candidatesBeforeNMS = candidates.length;
+          final candidatesBeforeNMS = _reusableCandidates.length;
 
           // NMS
           final nmsSw = Stopwatch()..start();
-          candidates.sort((a, b) => b.score.compareTo(a.score));
-          final kept = <_Candidate>[];
-          for (final c in candidates) {
+          _reusableCandidates.sort((a, b) => b.score.compareTo(a.score));
+          _reusableKept.clear();
+          
+          for (final c in _reusableCandidates) {
             bool suppress = false;
-            for (final k in kept) {
+            for (final k in _reusableKept) {
               if (_iou(c, k) > _nmsThreshold) {
                 suppress = true;
                 break;
               }
             }
             if (!suppress) {
-              kept.add(c);
+              _reusableKept.add(c);
             }
           }
           nmsSw.stop();
           nmsMs = nmsSw.elapsedMilliseconds;
-          final candidatesAfterNMS = kept.length;
+          final candidatesAfterNMS = _reusableKept.length;
+
+          final int totalMs = sw.elapsedMilliseconds;
 
           if (shouldLog) {
             debugPrint(
                 '[SCRFD_NMS] before=$candidatesBeforeNMS after=$candidatesAfterNMS threshold=$_confidenceThreshold maxIoU=0.4');
+            debugPrint(
+                '[SCRFD_STAGE_DIAG] frame=$frameId input_prepare=$allocMs inference=$infMs output=$outputMs decode=$decodeMs nms=$nmsMs total=$totalMs');
+          }
+
+          // SCRFD_STAGE_DIAG Accumulation
+          _stageFrames++;
+          _stageSumInput += allocMs;
+          _stageSumInf += infMs;
+          _stageSumOut += outputMs;
+          _stageSumDec += decodeMs;
+          _stageSumNms += nmsMs;
+          _stageSumTotal += totalMs;
+
+          if (allocMs > _stageMaxInput) _stageMaxInput = allocMs;
+          if (infMs > _stageMaxInf) _stageMaxInf = infMs;
+          if (totalMs > _stageMaxTotal) {
+            _stageMaxTotal = totalMs;
+            _stageWorstFrame = frameId;
+          }
+
+          // SCRFD_STAGE_STALL check
+          if (infMs > 100 || totalMs > 120 || allocMs > 30) {
+            debugPrint('[SCRFD_STAGE_STALL] frameId=$frameId input_prepare=$allocMs inference=$infMs output=$outputMs decode=$decodeMs nms=$nmsMs total=$totalMs');
+          }
+
+          // SCRFD_STAGE_SUMMARY
+          if (shouldLog && _stageFrames >= 10) {
+            final int avgInput = _stageFrames > 0 ? _stageSumInput ~/ _stageFrames : 0;
+            final int avgInf = _stageFrames > 0 ? _stageSumInf ~/ _stageFrames : 0;
+            final int avgOut = _stageFrames > 0 ? _stageSumOut ~/ _stageFrames : 0;
+            final int avgDec = _stageFrames > 0 ? _stageSumDec ~/ _stageFrames : 0;
+            final int avgNms = _stageFrames > 0 ? _stageSumNms ~/ _stageFrames : 0;
+            final int avgTotal = _stageFrames > 0 ? _stageSumTotal ~/ _stageFrames : 0;
+
+            debugPrint('[SCRFD_STAGE_SUMMARY] frames=$_stageFrames avg_input_prepare=$avgInput avg_inference=$avgInf avg_output=$avgOut avg_decode=$avgDec avg_nms=$avgNms avg_total=$avgTotal max_input_prepare=$_stageMaxInput max_inference=$_stageMaxInf max_total=$_stageMaxTotal worst_frame=$_stageWorstFrame');
+
+            _stageFrames = 0;
+            _stageSumInput = 0;
+            _stageSumInf = 0;
+            _stageSumOut = 0;
+            _stageSumDec = 0;
+            _stageSumNms = 0;
+            _stageSumTotal = 0;
+            _stageMaxInput = 0;
+            _stageMaxInf = 0;
+            _stageMaxTotal = 0;
+            _stageWorstFrame = -1;
           }
 
           if (candidatesAfterNMS > 50) {
@@ -461,7 +563,7 @@ class ExperimentalSCRFDDetector {
           }
 
           // Convert to normalized coordinates
-          for (final c in kept) {
+          for (final c in _reusableKept) {
             final origX1 = (c.x1 - padX) / scaleRatio;
             final origY1 = (c.y1 - padY) / scaleRatio;
             final origX2 = (c.x2 - padX) / scaleRatio;
@@ -496,19 +598,137 @@ class ExperimentalSCRFDDetector {
 
           // Throttled diagnostic
           if (shouldLog) {
-            final totalMs = sw.elapsedMilliseconds;
+            final logTotalMs = sw.elapsedMilliseconds;
             debugPrint(
-                '[SCRFD_SMALL_PERF] INPUT=320 TENSOR_ALLOC=${allocMs}ms INFERENCE=${infMs}ms OUTPUT=${outputMs}ms DECODE=${decodeMs}ms NMS=${nmsMs}ms TOTAL=${totalMs}ms FACES=${detectedBoxes.length}');
+                '[SCRFD_SMALL_PERF] SCRFD_CONFIG=A_INTRA1 INPUT=320 TENSOR_ALLOC=${allocMs}ms INFERENCE=${infMs}ms OUTPUT=${outputMs}ms DECODE=${decodeMs}ms NMS=${nmsMs}ms TOTAL=${logTotalMs}ms FACES=${detectedBoxes.length}');
             debugPrint(
-                '[SCRFD_SMALL_RESULT] faces=${detectedBoxes.length} boxes=${detectedBoxes.length} latency=${totalMs}ms');
+                '[SCRFD_SMALL_RESULT] faces=${detectedBoxes.length} boxes=${detectedBoxes.length} latency=${logTotalMs}ms');
           }
         } else if (shouldLog) {
           debugPrint(
               '[SCRFD] WARNING: expected >=9 outputs, got ${outputs.length}');
         }
 
+        final releaseSw = Stopwatch()..start();
         for (final out in outputs) {
           out?.release();
+        }
+        releaseSw.stop();
+        releaseMs = releaseSw.elapsedMilliseconds;
+        
+        final endTotalMs = sw.elapsedMilliseconds;
+        final totalMicro = sw.elapsedMicroseconds;
+
+        // --- Phase 7 Telemetry ---
+        final int workerToDetectMs = workerDelayMicro ~/ 1000;
+        final int detectToRunMs = runStartMicro ~/ 1000;
+        final int onnxInferenceMs = infMicro ~/ 1000;
+        final int runToPostprocessMs = (totalMicro - runStartMicro - infMicro) ~/ 1000;
+        final int scrfdTotalMs = totalMicro ~/ 1000;
+
+        if (onnxInferenceMs > 80 || scrfdTotalMs > 100) {
+          debugPrint('[SCRFD_SPIKE_DIAG]\n'
+              'frame=$frameId\n'
+              'worker_to_detect=$workerToDetectMs\n'
+              'detect_to_run=$detectToRunMs\n'
+              'onnx_inference=$onnxInferenceMs\n'
+              'run_to_postprocess=$runToPostprocessMs\n'
+              'scrfd_total=$scrfdTotalMs');
+        }
+
+        if (scrfdTotalMs > 100) {
+          String classification = 'UNKNOWN';
+          if (onnxInferenceMs > 100) {
+            classification = 'ONNX_INFERENCE_SPIKE';
+          } else if (workerToDetectMs > 30) {
+            classification = 'WORKER_SCHEDULING_SPIKE';
+          } else if (detectToRunMs > 30) {
+            classification = 'PRE_INFERENCE_SPIKE';
+          } else if (runToPostprocessMs > 30) {
+            classification = 'POST_INFERENCE_SPIKE';
+          } else {
+            classification = 'DISTRIBUTED_OVERHEAD_SPIKE';
+          }
+          
+          debugPrint('[SCRFD_SPIKE_CLASSIFICATION]\n'
+              'frame=$frameId\n'
+              'classification=$classification\n'
+              'worker_to_detect=$workerToDetectMs\n'
+              'detect_to_run=$detectToRunMs\n'
+              'onnx_inference=$onnxInferenceMs\n'
+              'run_to_postprocess=$runToPostprocessMs\n'
+              'scrfd_total=$scrfdTotalMs');
+        }
+
+        _benchmarkFrameCount++;
+        if (_benchmarkFrameCount > _benchmarkWarmupFrames) {
+          _diagFrames++;
+          _sumWorkerToDetect += workerDelayMicro;
+          _sumDetectToRun += runStartMicro;
+          _sumOnnxInference += infMicro;
+          _sumRunToPostprocess += (totalMicro - runStartMicro - infMicro);
+          _sumScrfdTotal += totalMicro;
+
+          if (workerDelayMicro > _maxWorkerToDetect) _maxWorkerToDetect = workerDelayMicro;
+          if (runStartMicro > _maxDetectToRun) _maxDetectToRun = runStartMicro;
+          if (infMicro > _maxOnnxInference) _maxOnnxInference = infMicro;
+          if ((totalMicro - runStartMicro - infMicro) > _maxRunToPostprocess) _maxRunToPostprocess = (totalMicro - runStartMicro - infMicro);
+          if (totalMicro > _maxScrfdTotal) _maxScrfdTotal = totalMicro;
+
+          if (onnxInferenceMs > 80) _spikesOnnx80++;
+          if (onnxInferenceMs > 100) _spikesOnnx100++;
+          if (scrfdTotalMs > 100) _spikesTotal100++;
+
+          _inferenceHistory.add(infMicro);
+
+          final nowTime = DateTime.now();
+          if (_diagFrames >= 100 && nowTime.difference(_lastSummaryTime).inMilliseconds >= 2000) {
+            final sortedInf = List<int>.from(_inferenceHistory)..sort();
+            final medianInfMs = (sortedInf[sortedInf.length ~/ 2] / 1000.0).toStringAsFixed(1);
+            final p95InfMs = (sortedInf[(sortedInf.length * 0.95).floor()] / 1000.0).toStringAsFixed(1);
+
+            final avgWorkerToDetect = (_sumWorkerToDetect / _diagFrames / 1000.0).toStringAsFixed(1);
+            final avgDetectToRun = (_sumDetectToRun / _diagFrames / 1000.0).toStringAsFixed(1);
+            final avgOnnxInference = (_sumOnnxInference / _diagFrames / 1000.0).toStringAsFixed(1);
+            final avgRunToPostprocess = (_sumRunToPostprocess / _diagFrames / 1000.0).toStringAsFixed(1);
+            final avgScrfdTotal = (_sumScrfdTotal / _diagFrames / 1000.0).toStringAsFixed(1);
+
+            debugPrint('[SCRFD_SPIKE_SUMMARY]\n'
+                'frames=$_diagFrames\n'
+                'avg_worker_to_detect=$avgWorkerToDetect\n'
+                'avg_detect_to_run=$avgDetectToRun\n'
+                'avg_onnx_inference=$avgOnnxInference\n'
+                'avg_run_to_postprocess=$avgRunToPostprocess\n'
+                'avg_scrfd_total=$avgScrfdTotal\n'
+                'median_onnx_inference=$medianInfMs\n'
+                'p95_onnx_inference=$p95InfMs\n'
+                'max_worker_to_detect=${_maxWorkerToDetect ~/ 1000}\n'
+                'max_detect_to_run=${_maxDetectToRun ~/ 1000}\n'
+                'max_onnx_inference=${_maxOnnxInference ~/ 1000}\n'
+                'max_run_to_postprocess=${_maxRunToPostprocess ~/ 1000}\n'
+                'max_scrfd_total=${_maxScrfdTotal ~/ 1000}\n'
+                'onnx_spikes_over_80=$_spikesOnnx80\n'
+                'onnx_spikes_over_100=$_spikesOnnx100\n'
+                'total_spikes_over_100=$_spikesTotal100\n'
+                'worst_frame=unknown');
+
+            _inferenceHistory.clear();
+            _diagFrames = 0;
+            _sumWorkerToDetect = 0;
+            _sumDetectToRun = 0;
+            _sumOnnxInference = 0;
+            _sumRunToPostprocess = 0;
+            _sumScrfdTotal = 0;
+            _maxWorkerToDetect = 0;
+            _maxDetectToRun = 0;
+            _maxOnnxInference = 0;
+            _maxRunToPostprocess = 0;
+            _maxScrfdTotal = 0;
+            _spikesOnnx80 = 0;
+            _spikesOnnx100 = 0;
+            _spikesTotal100 = 0;
+            _lastSummaryTime = nowTime;
+          }
         }
       }
     } catch (e) {
@@ -561,6 +781,8 @@ class ExperimentalSCRFDDetector {
 
   Future<void> dispose() async {
     try {
+      _runOptions?.release();
+      _runOptions = null;
       _session?.release();
       _session = null;
       _isReady = false;

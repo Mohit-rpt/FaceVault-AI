@@ -159,7 +159,7 @@ class _EditPersonScreenState extends ConsumerState<EditPersonScreen> {
 
   Future<void> _uploadNewFacePhoto(ImageSource source) async {
     try {
-      final picked = await _picker.pickImage(source: source, imageQuality: 85);
+      final picked = await _picker.pickImage(source: source, imageQuality: 100, maxWidth: 1920);
       if (picked == null) return;
 
       setState(() => _isSaving = true);
@@ -167,6 +167,21 @@ class _EditPersonScreenState extends ConsumerState<EditPersonScreen> {
       final service = ref.read(personServiceProvider);
       await service.registerFace(widget.person.personId, [picked]);
 
+      // Sync & update AiWorker
+      final syncManager = ref.read(syncManagerProvider);
+      await syncManager.checkAndSync();
+      if (!mounted) return;
+
+      final vectorIndexManager = ref.read(vectorIndexManagerProvider);
+      await vectorIndexManager.refreshFromHive();
+      if (!mounted) return;
+
+      final aiWorker = ref.read(aiWorkerProvider);
+      if (aiWorker.isInitialized) {
+        aiWorker.updateVectorIndex(vectorIndexManager.getIndexItems());
+      }
+
+      if (!mounted) return;
       ref.invalidate(personDetailProvider(widget.person.personId));
 
       if (mounted) {

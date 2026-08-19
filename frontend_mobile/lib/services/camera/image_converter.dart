@@ -41,6 +41,8 @@ class ImageConverter {
     required int origH,
     int targetSize = 640,
     int sensorOrientation = 90,
+    Float32List? reuseTensor,
+    Uint8List? reuseRgbBytes,
   }) {
     final Stopwatch sw = Stopwatch()..start();
 
@@ -63,11 +65,27 @@ class ImageConverter {
     }
 
     final int planeSize = targetSize * targetSize;
-    final Float32List tensor = Float32List(1 * 3 * planeSize);
-    final Uint8List rgbBytes = Uint8List(planeSize * 3);
+    final int requiredTensorSize = 1 * 3 * planeSize;
+    final int requiredRgbSize = planeSize * 3;
 
-    // Pad fill: normalized 0.0 (corresponds to pixel 127.5)
-    rgbBytes.fillRange(0, rgbBytes.length, 127);
+    final Float32List tensor = (reuseTensor != null && reuseTensor.length == requiredTensorSize)
+        ? reuseTensor
+        : Float32List(requiredTensorSize);
+
+    final Uint8List rgbBytes = (reuseRgbBytes != null && reuseRgbBytes.length == requiredRgbSize)
+        ? reuseRgbBytes
+        : Uint8List(requiredRgbSize);
+
+    // Pad fill only if padding is actually present
+    if (padX > 0 || padY > 0) {
+      // Pad fill: normalized 0.0 (corresponds to pixel 127.5)
+      rgbBytes.fillRange(0, rgbBytes.length, 127);
+      // Ensure Float32List padding is also zeroed out if it's being reused, 
+      // since the active area doesn't overwrite the padding zone.
+      if (reuseTensor != null) {
+        tensor.fillRange(0, tensor.length, 0.0);
+      }
+    }
 
       // Precalculate rx lookup for X dimension
       final Int32List rxTable = Int32List(newW);

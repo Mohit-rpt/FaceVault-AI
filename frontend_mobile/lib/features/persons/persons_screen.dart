@@ -33,7 +33,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   Future<void> _performFaceSearch(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(source: source, imageQuality: 85);
+      final pickedFile = await picker.pickImage(source: source, imageQuality: 100, maxWidth: 1920);
       if (pickedFile == null) return;
 
       setState(() => _isFaceSearching = true);

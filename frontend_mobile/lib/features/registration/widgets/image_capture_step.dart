@@ -37,8 +37,8 @@ class _ImageCaptureStepState extends State<ImageCaptureStep> {
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
-        imageQuality: 85,
-        maxWidth: 1024,
+        imageQuality: 100,
+        maxWidth: 1920,
       );
 
       if (image != null) {

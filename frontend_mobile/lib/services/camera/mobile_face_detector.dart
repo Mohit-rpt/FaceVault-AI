@@ -67,9 +67,11 @@ class MobileFaceDetector {
       final sessionOptions = OrtSessionOptions();
       sessionOptions.setIntraOpNumThreads(1);
       sessionOptions.setInterOpNumThreads(1);
+      sessionOptions.setSessionGraphOptimizationLevel(
+          GraphOptimizationLevel.ortEnableAll);
 
       debugPrint(
-          '[SCRFD_CPU_CONFIG] threads=1 graph_optimization=default provider=CPU');
+          '[SCRFD_CPU_CONFIG] threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL provider=CPU');
 
       Uint8List modelBytes;
       try {
@@ -125,9 +127,11 @@ class MobileFaceDetector {
       final sessionOptions = OrtSessionOptions();
       sessionOptions.setIntraOpNumThreads(1);
       sessionOptions.setInterOpNumThreads(1);
+      sessionOptions.setSessionGraphOptimizationLevel(
+          GraphOptimizationLevel.ortEnableAll);
 
       debugPrint(
-          '[SCRFD_CPU_CONFIG] threads=1 graph_optimization=default provider=CPU');
+          '[SCRFD_CPU_CONFIG] threads_intra=1 threads_inter=1 graph_optimization=ORT_ENABLE_ALL provider=CPU');
 
       if (modelBytes.isNotEmpty) {
         _session = OrtSession.fromBuffer(modelBytes, sessionOptions);
@@ -224,6 +228,8 @@ class MobileFaceDetector {
     required int padY,
     required int originalWidth,
     required int originalHeight,
+    int frameId = -1,
+    int workerDelayMicro = 0,
   }) async {
     final Stopwatch sw = Stopwatch()..start();
     final now = DateTime.now();

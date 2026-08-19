@@ -157,6 +157,16 @@ class VectorIndexManager {
     );
   }
 
+  /// Get a snapshot list of current index items for isolate synchronization.
+  List<VectorIndexItem> getIndexItems() => List<VectorIndexItem>.from(_index);
+
+  /// Set the index items directly (used inside the worker isolate).
+  void setIndexItems(List<VectorIndexItem> items) {
+    _index.clear();
+    _index.addAll(items);
+    _isLoaded = true;
+  }
+
   void clear() {
     _index.clear();
     _isLoaded = false;

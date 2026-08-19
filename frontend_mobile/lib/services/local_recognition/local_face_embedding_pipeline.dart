@@ -17,6 +17,8 @@ class LocalFaceEmbeddingResult {
   final Float32List embedding; // 512-dim L2 normalized float vector
   final double confidence;
   final DateTime timestamp;
+  final int alignMicro;
+  final int embedMicro;
 
   LocalFaceEmbeddingResult({
     required this.faceIndex,
@@ -25,6 +27,8 @@ class LocalFaceEmbeddingResult {
     required this.embedding,
     required this.confidence,
     required this.timestamp,
+    this.alignMicro = 0,
+    this.embedMicro = 0,
   });
 }
 
@@ -83,15 +87,21 @@ class LocalFaceEmbeddingPipeline {
             ];
 
         // Step 2: Perform 5-point similarity alignment to 112x112 NCHW FloatTensor [-1.0, 1.0]
+        final alignSw = Stopwatch()..start();
         final Float32List alignedTensor = FaceAlignmentService.alignFaceToRgbTensor(
           srcRgbBytes: frameRgbBytes,
           srcWidth: frameWidth,
           srcHeight: frameHeight,
           landmarks: landmarks,
         );
+        alignSw.stop();
+        final alignMicro = alignSw.elapsedMicroseconds;
 
         // Step 3: Run w600k_mbf.onnx inference to produce 512D L2-normalized Float32 embedding
+        final embedSw = Stopwatch()..start();
         final Float32List? embedding = await embeddingGenerator.generateFromTensor(alignedTensor);
+        embedSw.stop();
+        final embedMicro = embedSw.elapsedMicroseconds;
 
         if (embedding != null && embedding.length == 512) {
           double normSq = 0.0;
@@ -108,6 +118,8 @@ class LocalFaceEmbeddingPipeline {
             embedding: embedding,
             confidence: face.confidence,
             timestamp: detectionResult.timestamp,
+            alignMicro: alignMicro,
+            embedMicro: embedMicro,
           ));
         }
       } catch (e) {

@@ -73,7 +73,23 @@ class _ReviewStepState extends ConsumerState<ReviewStep> {
         await personService.registerFace(createdPerson.personId, imageFiles);
       }
 
-      // Step 3: Refresh Providers
+      // Step 3: Trigger Sync to pull new embedding into Hive & update Vector Index
+      final syncManager = ref.read(syncManagerProvider);
+      await syncManager.checkAndSync();
+      if (!mounted) return;
+
+      final vectorIndexManager = ref.read(vectorIndexManagerProvider);
+      await vectorIndexManager.refreshFromHive();
+      if (!mounted) return;
+
+      // Step 4: Propagate updated vectors into the running AiWorker isolate
+      final aiWorker = ref.read(aiWorkerProvider);
+      if (aiWorker.isInitialized) {
+        aiWorker.updateVectorIndex(vectorIndexManager.getIndexItems());
+      }
+
+      // Step 5: Refresh UI Providers
+      if (!mounted) return;
       ref.invalidate(personsListProvider(null));
       ref.invalidate(dashboardStatsProvider);
 

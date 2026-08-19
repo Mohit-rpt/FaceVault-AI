@@ -1,21 +1,13 @@
 // lib/features/camera/camera_screen.dart
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
-import '../../shared/widgets/futuristic_app_bar.dart';
 import '../../providers/app_providers.dart';
 import '../../services/camera/camera_service.dart';
 import '../../services/camera/frame_processor.dart';
-import '../../services/camera/mobile_face_detector.dart';
-import '../../services/camera/coordinate_transformer.dart';
 import '../../services/local_recognition/local_recognition_result.dart';
-import 'widgets/camera_status_card.dart';
-import 'widgets/camera_preview_card.dart';
-import 'widgets/camera_list_card.dart';
-import 'widgets/camera_controls.dart';
 import 'package:facevault_ai/features/camera/widgets/recognition_overlay.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
@@ -76,52 +68,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
   void _onDetectionResult() {
     final processor = ref.read(frameProcessorProvider);
-    final recognitionEngine = ref.read(localRecognitionEngineProvider);
-
-    final detection = processor.detectionNotifier.value;
-    if (detection == null || detection.faces.isEmpty) {
-      _recognitionResultsNotifier.value = [];
-      processor.updateRecognitionLatencies(alignMs: 0, embedMs: 0, searchMs: 0);
-      return;
+    if (mounted) {
+      _recognitionResultsNotifier.value = processor.recognitionResultsNotifier.value;
     }
-
-    final rgbBytes = processor.latestRgbBytes;
-    final rgbWidth = processor.latestRgbWidth;
-    final rgbHeight = processor.latestRgbHeight;
-    if (rgbBytes == null) return;
-
-    final Stopwatch sw = Stopwatch()..start();
-    recognitionEngine
-        .processFrameDetections(
-      frameRgbBytes: rgbBytes,
-      frameWidth: rgbWidth,
-      frameHeight: rgbHeight,
-      detectionResult: detection,
-    )
-        .then((results) {
-      sw.stop();
-      final totalRecogMs = sw.elapsedMilliseconds;
-      final alignMs = (totalRecogMs * 0.20).round();
-      final embedMs = (totalRecogMs * 0.70).round();
-      final searchMs = totalRecogMs - alignMs - embedMs;
-
-      debugPrint('[AI_PROCESSOR] alignment complete (${alignMs}ms)');
-      debugPrint('[AI_PROCESSOR] embedding complete (${embedMs}ms)');
-      debugPrint('[AI_PROCESSOR] search complete (${searchMs}ms)');
-
-      processor.updateRecognitionLatencies(
-        alignMs: alignMs,
-        embedMs: embedMs,
-        searchMs: searchMs,
-      );
-
-      if (mounted) {
-        _recognitionResultsNotifier.value = results;
-      }
-    }).catchError((error, stackTrace) {
-      debugPrint('❌ [RECOGNITION_ERROR] $error');
-      debugPrintStack(stackTrace: stackTrace);
-    });
   }
 
   Future<void> _startHardwareCamera() async {
@@ -147,11 +96,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       }
       if (mounted) setState(() {});
 
-      final recognitionEngine = ref.read(localRecognitionEngineProvider);
-      await recognitionEngine.initialize();
+      final vectorIndexManager = ref.read(vectorIndexManagerProvider);
+      await vectorIndexManager.initialize();
 
       final aiWorker = ref.read(aiWorkerProvider);
-      await aiWorker.initialize();
+      await aiWorker.initialize(
+        initialIndexItems: vectorIndexManager.getIndexItems(),
+      );
 
       // Listen to detection results cleanly without stacking duplicates
       processor.detectionNotifier.removeListener(_onDetectionResult);
@@ -161,6 +112,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   }
 
   Future<void> _stopHardwareCamera() async {
+    if (!mounted) return; // Prevent using ref after dispose
     final cameraService = ref.read(cameraServiceProvider);
     final processor = ref.read(frameProcessorProvider);
     processor.detectionNotifier.removeListener(_onDetectionResult);

@@ -96,6 +96,51 @@ class FaceTracker {
   List<TrackedFace> get activeTracks =>
       _activeTracks.where((t) => t.state != TrackState.removed).toList();
 
+  /// PHASE 23: Checks if a detection matches an existing, recognized track.
+  /// If so, returns the cached identity to skip ONNX embedding.
+  LocalRecognitionResult? getCachedIdentity(List<double> detBox) {
+    final detCenter = [
+      (detBox[0] + detBox[2]) / 2,
+      (detBox[1] + detBox[3]) / 2,
+    ];
+
+    int bestTrackIdx = -1;
+    double minDistance = double.infinity;
+
+    for (int t = 0; t < _activeTracks.length; t++) {
+      final track = _activeTracks[t];
+      // Only use cache if the track is already known and not lost
+      if (!track.isKnown || track.state == TrackState.lost || track.state == TrackState.removed) {
+        continue;
+      }
+
+      final double dist = math.sqrt(
+        math.pow(detCenter[0] - track.center[0], 2) +
+            math.pow(detCenter[1] - track.center[1], 2),
+      );
+
+      if (dist < maxCenterDistanceThreshold && dist < minDistance) {
+        minDistance = dist;
+        bestTrackIdx = t;
+      }
+    }
+
+    if (bestTrackIdx != -1) {
+      final track = _activeTracks[bestTrackIdx];
+      return LocalRecognitionResult(
+        trackId: track.trackId,
+        personId: track.personId,
+        displayName: track.displayName,
+        similarity: track.similarity,
+        isKnown: track.isKnown,
+        boundingBox: detBox,
+        timestamp: DateTime.now(),
+        state: 'cached_recognized',
+      );
+    }
+    return null;
+  }
+
   /// Match newly detected frame results against existing active tracks.
   List<LocalRecognitionResult> updateTracks(
     List<LocalRecognitionResult> frameDetections,
