@@ -28,6 +28,7 @@ from .image_quality import ImageQualityAssessor
 from .face_alignment import FaceAlignment
 from .embedding_normalizer import EmbeddingNormalizer
 from app.services.face_detector_instance import get_face_detector
+from app.services.sync_service import get_next_embedding_version
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ class RecognitionService:
         emb = self.embedder.get_embedding(face.embedding)
         
         try:
-            next_ver = (self.db.query(func.max(FaceEmbedding.embedding_version)).scalar() or 0) + 1
+            next_ver = get_next_embedding_version(self.db)
             db_emb = FaceEmbedding(
                 person_id=person_id,
                 faiss_vector_id=0,

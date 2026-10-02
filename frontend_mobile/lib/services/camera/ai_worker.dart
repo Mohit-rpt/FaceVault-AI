@@ -1058,14 +1058,16 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
                 // 3c. Vector Similarity Search against in-memory index
                 final int searchStart = globalWorkerClock.elapsedMicroseconds;
                 if (embedding != null) {
+                  final bool queryValid = embedding.length == 512 && !embedding.any((v) => v.isNaN || v.isInfinite);
                   final matches = vectorIndex.search(embedding, topK: 1);
                   if (matches.isEmpty) {
-                    debugPrint('[SEARCH_DIAG] matches=0 index_size=${vectorIndex.getIndexItems().length} (Database is empty or no match)');
+                    debugPrint('[SEARCH_DIAG] index_size=${vectorIndex.getIndexItems().length} query_valid=$queryValid matches=0 (Database is empty or no candidates)');
                   } else {
                     final match = matches.first;
                     similarity = match.similarity;
-                    debugPrint('[SEARCH_DIAG] top_similarity=${similarity.toStringAsFixed(4)} threshold=$similarityThreshold person=${match.personName}');
-                    if (similarity >= similarityThreshold) {
+                    final bool accepted = similarity >= similarityThreshold;
+                    debugPrint('[SEARCH_DIAG] index_size=${vectorIndex.getIndexItems().length} query_valid=$queryValid top_similarity=${similarity.toStringAsFixed(4)} threshold=$similarityThreshold person="${match.personName}" decision=${accepted ? "ACCEPTED" : "REJECTED (Unknown)"}');
+                    if (accepted) {
                       personId = match.personId.toString();
                       displayName = match.personName;
                       isKnown = true;

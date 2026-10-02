@@ -9,6 +9,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastapi.responses import JSONResponse
 
@@ -27,6 +28,7 @@ from app.core.response import success_response, error_response
 from app.core.exceptions import NotFoundException
 from app.core.utils import get_image_url
 from app.services.face_detector_instance import get_face_detector
+from app.services.sync_service import get_next_embedding_version
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +463,10 @@ def register_face(
     storage_dir = os.getenv("FACE_STORAGE_DIR", "storage/faces")
     Path(storage_dir).mkdir(parents=True, exist_ok=True)
 
+    # Monotonic versioning for sync: all embeddings in this registration batch share the new version
+    batch_version = get_next_embedding_version(db)
+    logger.info(f"Assigned monotonic embedding_version={batch_version} for person_id={person_id} registration batch")
+
     registered = 0
     failed = 0
     embeddings_created = 0
@@ -534,6 +540,8 @@ def register_face(
                 capture_angle="front",
                 capture_source="registration_api",
                 is_active=True,
+                embedding_version=batch_version,
+                is_deleted=False,
                 embedding_vector=EmbeddingNormalizer.to_bytes(emb_result.embedding),
             )
             db.add(db_embedding)

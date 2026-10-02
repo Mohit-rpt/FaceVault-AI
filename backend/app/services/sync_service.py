@@ -12,12 +12,26 @@ import base64
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.models import Person, FaceEmbedding, FaceImage, PersonDetail, RecognitionLog
 
 logger = logging.getLogger(__name__)
+
+
+def get_next_embedding_version(db: Session) -> int:
+    """
+    Atomically compute the next monotonic embedding version.
+    Uses PostgreSQL transaction-level advisory lock when available
+    to prevent race conditions under concurrent registrations.
+    """
+    try:
+        db.execute(text("SELECT pg_advisory_xact_lock(847291)"))
+    except Exception:
+        pass
+    max_ver = db.query(func.max(FaceEmbedding.embedding_version)).scalar() or 0
+    return max_ver + 1
 
 
 class SyncService:

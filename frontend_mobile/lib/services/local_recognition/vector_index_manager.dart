@@ -113,6 +113,7 @@ class VectorIndexManager {
     double threshold = 0.45,
   }) {
     if (!_isLoaded || _index.isEmpty) {
+      debugPrint('🔍 [VectorIndexSearch] Skipped: index not loaded or empty (isLoaded=$_isLoaded, count=${_index.length})');
       return null;
     }
 
@@ -145,7 +146,7 @@ class VectorIndexManager {
     final double confidence = (clampedSim * 100).clamp(0.0, 100.0);
     final bool isMatch = clampedSim >= threshold;
 
-    debugPrint('🔍 [VectorIndexSearch] Match: "${bestItem.personName}" (Sim: ${clampedSim.toStringAsFixed(4)}, Conf: ${confidence.toStringAsFixed(1)}%) in ${sw.elapsedMilliseconds} ms');
+    debugPrint('🔍 [VectorIndexSearch] Index: ${_index.length} vectors | Best: "${bestItem.personName}" (Sim: ${clampedSim.toStringAsFixed(4)}, Conf: ${confidence.toStringAsFixed(1)}%) | Threshold: $threshold | Decision: ${isMatch ? "ACCEPTED" : "REJECTED (Unknown)"} in ${sw.elapsedMilliseconds} ms');
 
     return VectorMatchResult(
       personId: bestItem.personId,
