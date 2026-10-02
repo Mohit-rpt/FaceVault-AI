@@ -959,18 +959,23 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
                 
                 // 3a. 5-Point Face Alignment to 112x112 NCHW FloatTensor
                 final int alignStart = globalWorkerClock.elapsedMicroseconds;
-                final List<List<double>> landmarks = face.landmarks ??
-                    [
-                      [face.boundingBox[0] * tensorResult.originalWidth, face.boundingBox[1] * tensorResult.originalHeight],
-                      [face.boundingBox[2] * tensorResult.originalWidth, face.boundingBox[1] * tensorResult.originalHeight],
-                      [(face.boundingBox[0] + face.boundingBox[2]) / 2 * tensorResult.originalWidth, (face.boundingBox[1] + face.boundingBox[3]) / 2 * tensorResult.originalHeight],
-                      [face.boundingBox[0] * tensorResult.originalWidth, face.boundingBox[3] * tensorResult.originalHeight],
-                      [face.boundingBox[2] * tensorResult.originalWidth, face.boundingBox[3] * tensorResult.originalHeight],
-                    ];
+                final List<List<double>> landmarks = face.landmarks != null
+                    ? face.landmarks!.map<List<double>>((kp) {
+                        final double x = (kp[0] as num).toDouble() * targetSize.toDouble();
+                        final double y = (kp[1] as num).toDouble() * targetSize.toDouble();
+                        return [x, y];
+                      }).toList()
+                    : [
+                        [face.boundingBox[0] * targetSize.toDouble(), face.boundingBox[1] * targetSize.toDouble()],
+                        [face.boundingBox[2] * targetSize.toDouble(), face.boundingBox[1] * targetSize.toDouble()],
+                        [(face.boundingBox[0] + face.boundingBox[2]) / 2 * targetSize.toDouble(), (face.boundingBox[1] + face.boundingBox[3]) / 2 * targetSize.toDouble()],
+                        [face.boundingBox[0] * targetSize.toDouble(), face.boundingBox[3] * targetSize.toDouble()],
+                        [face.boundingBox[2] * targetSize.toDouble(), face.boundingBox[3] * targetSize.toDouble()],
+                      ];
                 final Float32List alignedTensor = FaceAlignmentService.alignFaceToRgbTensor(
                   srcRgbBytes: tensorResult.rgbBytes,
-                  srcWidth: tensorResult.originalWidth,
-                  srcHeight: tensorResult.originalHeight,
+                  srcWidth: targetSize,
+                  srcHeight: targetSize,
                   landmarks: landmarks,
                 );
                 final int alignEnd = globalWorkerClock.elapsedMicroseconds;
@@ -1214,6 +1219,39 @@ Future<void> _workerEntrypoint(_WorkerInitData initData) async {
           }
         } catch (e, st) {
           debugPrint('❌ [AI_WORKER] Frame processing error: $e\n$st');
+          // Send a dummy result back to unlock the main isolate's _isBusy flag
+          replyPort.send(AIWorkerResult(
+            detection: FaceDetectionResult(
+              faces: [],
+              frameWidth: 0,
+              frameHeight: 0,
+              timestamp: DateTime.now(),
+              processTimeMs: 0,
+            ),
+            recognitionResults: [],
+            totalPipelineMs: 0,
+            yuvConversionMs: 0,
+            scrfdMs: 0,
+            alignMs: 0,
+            embedMs: 0,
+            searchMs: 0,
+            trackingMs: 0,
+            frameId: req.frameId,
+            cameraEntryMs: req.cameraEntryMs,
+            cameraEntryMicro: req.cameraEntryMicro,
+            dispatchMs: req.dispatchMs,
+            dispatchMicro: req.dispatchMicro,
+            workerStartMs: DateTime.now().millisecondsSinceEpoch,
+            workerStartMicro: 0,
+            yuvStartMicro: 0,
+            yuvEndMicro: 0,
+            scrfdStartMicro: 0,
+            scrfdEndMicro: 0,
+            workerEndMs: DateTime.now().millisecondsSinceEpoch,
+            workerEndMicro: 0,
+            workerResultStartMicro: 0,
+            workerResultEndMicro: 0,
+          ));
         }
       }
     }

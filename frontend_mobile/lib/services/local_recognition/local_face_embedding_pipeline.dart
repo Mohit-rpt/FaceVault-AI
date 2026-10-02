@@ -77,14 +77,19 @@ class LocalFaceEmbeddingPipeline {
 
       try {
         // Step 1: Extract 5-point SCRFD landmarks (or construct box center landmarks)
-        final List<List<double>> landmarks = face.landmarks ??
-            [
-              [face.boundingBox[0] * frameWidth, face.boundingBox[1] * frameHeight],
-              [face.boundingBox[2] * frameWidth, face.boundingBox[1] * frameHeight],
-              [(face.boundingBox[0] + face.boundingBox[2]) / 2 * frameWidth, (face.boundingBox[1] + face.boundingBox[3]) / 2 * frameHeight],
-              [face.boundingBox[0] * frameWidth, face.boundingBox[3] * frameHeight],
-              [face.boundingBox[2] * frameWidth, face.boundingBox[3] * frameHeight],
-            ];
+        final List<List<double>> landmarks = face.landmarks != null
+            ? face.landmarks!.map<List<double>>((kp) {
+                final double x = (kp[0] as num).toDouble() * frameWidth;
+                final double y = (kp[1] as num).toDouble() * frameHeight;
+                return [x, y];
+              }).toList()
+            : [
+                [face.boundingBox[0] * frameWidth, face.boundingBox[1] * frameHeight],
+                [face.boundingBox[2] * frameWidth, face.boundingBox[1] * frameHeight],
+                [(face.boundingBox[0] + face.boundingBox[2]) / 2 * frameWidth, (face.boundingBox[1] + face.boundingBox[3]) / 2 * frameHeight],
+                [face.boundingBox[0] * frameWidth, face.boundingBox[3] * frameHeight],
+                [face.boundingBox[2] * frameWidth, face.boundingBox[3] * frameHeight],
+              ];
 
         // Step 2: Perform 5-point similarity alignment to 112x112 NCHW FloatTensor [-1.0, 1.0]
         final alignSw = Stopwatch()..start();

@@ -97,10 +97,10 @@ class HiveEmbeddingStore implements LocalEmbeddingStore {
     if (b64 != null && b64.isNotEmpty) {
       final bytes = base64Decode(b64);
       final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
-      final floatCount = bytes.length ~/ 8;
+      final floatCount = bytes.length ~/ 4; // 4 bytes per float32
       vec = Float64List(floatCount);
       for (int i = 0; i < floatCount; i++) {
-        vec[i] = byteData.getFloat64(i * 8, Endian.little);
+        vec[i] = byteData.getFloat32(i * 4, Endian.little).toDouble();
       }
     }
 
@@ -135,11 +135,13 @@ class HiveEmbeddingStore implements LocalEmbeddingStore {
         if (vecList == null || vecList.isEmpty) continue;
 
         final floatVec = Float64List.fromList(vecList.map((e) => (e as num).toDouble()).toList());
+        final personMap = await getPersonMap(raw['person_id'] as int);
+        final personName = personMap?['name'] as String? ?? raw['person_name'] as String? ?? 'Person ${raw['person_id']}';
 
         results.add(LocalEmbedding(
           embeddingId: raw['embedding_id'] as int,
           personId: raw['person_id'] as int,
-          personName: raw['person_name'] as String? ?? 'Person ${raw['person_id']}',
+          personName: personName,
           vector: floatVec,
           syncedAt: DateTime.tryParse(raw['synced_at'] as String? ?? '') ?? DateTime.now(),
         ));
